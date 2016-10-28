@@ -5,16 +5,17 @@ import urllib2
 import re
 import time
 import HTMLParser
+import io
 
-def get_poems_for_poet_name(poet):
+def get_poems_for_poet_name(poet, output_dir):
     poet = poet.lower()
     poet = re.sub('[^a-z]+','-',poet)
     
     url = "http://www.poetryfoundation.org/poems-and-poets/poets/detail/"+poet+"#about"
 
-    get_poems_for_poet(url)
+    get_poems_for_poet(url, output_dir)
 
-def get_poems_for_poet(url):
+def get_poems_for_poet(url, output_dir):
 
     page = urllib2.urlopen(url)
     soup = BeautifulSoup(page.read(), "html5lib")
@@ -38,9 +39,11 @@ def get_poems_for_poet(url):
         
         if poemTitle:
             poemId = poemUrl.split('/')[-1]
-            title = parser.unescape(poemTitle.text).encode('ascii', 'ignore')
-            fileout = title + "_" + poemId + ".txt"
+            title = parser.unescape(poemTitle.text).encode('ascii', 'replace')
+            title = re.sub('[^A-Za-z0-9]+', '', title)
+            fileout = output_dir + '/' + title + "_" + poemId + ".txt"
             output = open(fileout, 'w')
+            #output = io.open(fileout, 'w', encoding='utf8')
             #print(parser.unescape(poemTitle.text).encode('ascii', 'ignore'),file=output)
             
             poem = poemSoup.find('div',{'class':'poem'})
@@ -49,14 +52,15 @@ def get_poems_for_poet(url):
             for line in poemContent:
                 text = parser.unescape(line.text)
                 out = text.encode('utf8').replace("\xc2\xa0", " ").strip()
-                #out = text.encode('ascii', 'ignore').strip()
+                #out = unicode(out, errors='replace')
                 if out:
                     print(out,file=output)
 
 def get_poets_on_page(url, session):
     #page = urllib2.urlopen(url)
     session.visit(url)
-    time.sleep(3)
+    # this give the javascript no the page time to render before getting the list of poets
+    time.sleep(4)
     response = session.body()
     soup = BeautifulSoup(response)
 
@@ -65,7 +69,7 @@ def get_poets_on_page(url, session):
     poetUrls = set()
     for poet in poets:
         poetUrl = 'http:' + poet.get('href') + '#about'
-        poetUrl = poetUrl.encode('ascii', 'ignore')
+        poetUrl = poetUrl.encode('utf8', 'replace')
         poetUrls.add(poetUrl)
 
     #print(poetUrls)
@@ -77,16 +81,17 @@ def get_all_poets():
 
     poetUrls = set()
     session = dryscrape.Session()
-    for i in range(1,195):
+    for i in range(1,196):
         url = base_url + str(i)
         print(url)
         new_poets = get_poets_on_page(url, session)
-        print("Got poets for page")
+        #print("Got poets for page")
         poetUrls = poetUrls.union(new_poets)
 
     with open('poet_found_poets.txt', 'w') as poet_list:
         for poet in poetUrls:
-            poet_list.write("%s\n" % poet)
+            #poet = unicode(poet, errors='replace')
+            print(poet, file=poet_list)
 
     return poetUrls
 
@@ -97,9 +102,13 @@ def get_poets_from_file(path):
 
     return poets
 
-def get_all_poems():
+def get_all_poems(output_dir='.', starting_point=0):
 
     poets = get_poets_from_file('poet_found_poets.txt')
 
+    i = 0
     for poet in poets:
-       get_poems_for_poet(poet) 
+        if i >= starting_point:
+            print("poet: " + str(i))
+            get_poems_for_poet(poet, output_dir) 
+        i += 1
