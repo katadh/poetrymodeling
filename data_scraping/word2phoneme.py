@@ -229,7 +229,7 @@ def train(model, trainer, source, target):
 
 def trainExample(model):
 	#SGD Trainer    
-	trainer = pc.4(model)
+	trainer = pc.SimpleSGDTrainer(model)
 	symbols = []
 	# words, symbols = read(TRAIN_FILEPATH_SRC)
 
