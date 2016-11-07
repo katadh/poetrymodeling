@@ -16,7 +16,7 @@ SYMBOLS_SRC = "/Users/chaitanya/Desktop/Study/10701/Project/cmudict-0.7b.symbols
 DEV_FILEPATH_SRC = "cmu_dict_dev"
 TEST_FILEPATH_SRC = "cmu_dict_test"
 
-EPOCHS = 1
+EPOCHS = 10
 
 ## SOURCE
 characters = list(string.ascii_uppercase) + [" "]
@@ -229,7 +229,7 @@ def train(model, trainer, source, target):
 
 def trainExample(model):
 	#SGD Trainer    
-	trainer = pc.SimpleSGDTrainer(model)
+	trainer = pc.4(model)
 	symbols = []
 	# words, symbols = read(TRAIN_FILEPATH_SRC)
 
@@ -238,8 +238,12 @@ def trainExample(model):
 				loss_value = train(model, trainer, src, target)
 		if (i%100==0):
 			print "Epoch: ", i , "Loss: " , loss_value
-			
+
 		model.save(MODEL_PATH)
+		evalDevSet(model)
+
+def evalDevSet(model):
+
 
 def loadModel(modelPath):
 	lookup_src = model.add_lookup_parameters( (VOCAB_SIZE_SRC, EMBEDDINGS_SIZE))
