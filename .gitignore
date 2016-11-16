@@ -3,3 +3,7 @@ data/*
 *~
 .idea/*
 .DS_Store
+*/args
+*/params
+*/vocab.src
+*/vocab.tgt
