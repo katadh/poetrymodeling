@@ -156,7 +156,7 @@ class Vocab(object):
             return v
 
     @classmethod
-    def load_from_corpus(cls, reader, remake=False):
+    def load_from_corpus(cls, reader, remake=False, src_or_tgt="src"):
         vocab_fname = reader.fname+".vocab."+reader.mode
         if not remake and os.path.isfile(vocab_fname):
             return Vocab.load(vocab_fname)
@@ -164,8 +164,11 @@ class Vocab(object):
             v = Vocab()
             count = 0
             for item in reader:
-                if reader.seq2seq: toklist = item[0]+item[1]
-                else:              toklist = item
+                if reader.seq2seq:
+                    if src_or_tgt == "src": toklist = item[0]
+                    if src_or_tgt == "tgt": toklist = item[1]
+                else:
+                    toklist = item
                 for token in toklist:
                     v.add(token)
                 count += 1
@@ -178,7 +181,19 @@ class Vocab(object):
             v.save(vocab_fname)
             return v
 
-class CMUDictCorpusReader(object):
+
+#### reader classes
+
+class CorpusReaderTemplate(object):
+    names = {"template",}
+
+def get_reader(name):
+    for c in itersubclasses(CorpusReaderTemplate):
+        if name in c.names: return c
+    raise Exception("no reader found with name: " + name)
+
+class CMUDictCorpusReader(CorpusReaderTemplate):
+    names = {"cmudict",}
     def __init__(self, fname, begin=None, end=None, mode="cmudict"):
         self.fname = fname
         self.mode = mode
@@ -197,27 +212,21 @@ class CMUDictCorpusReader(object):
                 doc = f.read()
                 for line in doc.split("\n"):
                     if not line: continue
-                    if self.mode in {"cmudict", "cmudict_chars", "cmudict_phones"}:
-                        spell, pronounce = line.split("  ")
-                        if "(" in spell: spell = spell.split("(")[0]
-                        spell = [self.begin]+list(spell)+[self.end]
-                        pronounce = [self.begin]+pronounce.split(" ")+[self.end]
-                        if self.mode == "cmudict":
-                            yield (spell, pronounce)
-                        elif self.mode == "cmudict_chars":
-                            yield (spell, [])
-                        elif self.mode == "cmudict_phones":
-                            yield ([], pronounce)
+                    spell, pronounce = line.split("  ")
+                    if "(" in spell: spell = spell.split("(")[0]
+                    spell = [self.begin]+list(spell)+[self.end]
+                    pronounce = [self.begin]+pronounce.split(" ")+[self.end]
+                    yield (spell, pronounce)
 
-
-
-class OHHLACorpusReader(object):
+class OHHLACorpusReader(CorpusReaderTemplate):
+    names = {"ohhla","ohhla_line_pairs"}
     def __init__(self, fname, begin=None, end=None, mode="ohhla"):
         self.fname = fname
         self.mode = mode
         self.begin = begin
         self.end = end
-        self.seq2seq = False
+        if mode == "ohhla": self.seq2seq = False
+        else: self.seq2seq = True
 
     def __iter__(self):
         if os.path.isdir(self.fname):
@@ -225,11 +234,44 @@ class OHHLACorpusReader(object):
         else:
             filenames = [self.fname]
         for filename in filenames:
-            # with io.open(filename, encoding='utf-8') as f:
             with open(filename) as f:
                 doc = f.read()
-                toks = [self.begin]
-                for line in doc.split("\n"):
-                    if not line: continue
-                    toks +=  ' '.join(tokenize(line)).split(" ") + ['<br>']
-                yield toks + [self.end]
+                if self.mode == "ohhla":
+                    toks = [self.begin]
+                    for line in doc.split("\n"):
+                        if not line: continue
+                        toks +=  ' '.join(tokenize(line)).split(" ") + ['<br>']
+                    yield toks + [self.end]
+                elif self.mode == "ohhla_line_pairs":
+                    lines = [tokenize(line) for line in doc.split("\n")]
+                    for l1, l2 in zip(lines, lines[1:]):
+                        inp_toks = [self.begin] + ' '.join(l1).split(" ") + [self.end]
+                        outp_toks = ' '.join(l2).split(" ") + [self.end]
+                        yield (inp_toks, outp_toks)
+
+class SquadCorpusReader(CorpusReaderTemplate):
+    names = {"squad", "squad_ptr", "squad_word"}
+    def __init__(self, fname, begin=None, middle=None, end=None, mode="squad"):
+        self.fname = fname
+        self.mode = mode
+        self.begin = begin
+        self.middle = middle
+        self.end = end
+        self.seq2se2 = True
+
+    def __iter__(self):
+        if os.path.isdir(self.fname):
+            filenames = [os.path.join(self.fname,f) for f in os.listdir(self.fname)]
+        else:
+            filenames = [self.fname]
+        for filename in filenames:
+            with io.open(filename, encoding='utf-8') as f:
+                squad = json.load(f)
+                print "Loaded data of len", len(squad['data'])
+                for d in squad['data']:
+                    if self.mode == "squad":
+                        yield [self.begin]+list(d["sentence"])+[self.middle]+list(d["question"])+[self.end], list(d["answer"])+[self.end]
+                    elif self.mode == "squad_word":
+                        yield [self.begin]+tokenize(d["sentence"])[0].split(" ")+[self.middle]+tokenize(d["question"])[0].split(" ")+[self.end], tokenize(d["answer"])[0].split(" ")+[self.end]
+                    elif self.mode == "squad_ptr":
+                        yield [self.begin]+list(d["sentence"])+[self.middle]+list(d["question"])+[self.end], list(d["answer"])+[self.end]

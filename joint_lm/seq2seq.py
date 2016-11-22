@@ -79,7 +79,6 @@ class Seq2SeqBasic(Seq2SeqTemplate):
         w = dynet.parameter(self.decoder_w)
         b = dynet.parameter(self.decoder_b)
 
-        # s = self.dec_lstm.initial_state().add_input(dynet.vecInput(self.hidden_dim*2))
         s = self.dec_lstm.initial_state().add_input(encoding)
 
         loss = []
@@ -92,18 +91,17 @@ class Seq2SeqBasic(Seq2SeqTemplate):
         loss = dynet.esum(loss)
         return loss
 
-    def greedy_generate(self, src):
+    def generate(self, src, sampled=False):
         embedding = self.embed_seq(src)
         encoding = self.encode_seq(embedding)[-1]
 
         w = dynet.parameter(self.decoder_w)
         b = dynet.parameter(self.decoder_b)
 
-        # s = self.dec_lstm.initial_state().add_input(dynet.vecInput(self.hidden_dim*2))
         s = self.dec_lstm.initial_state().add_input(encoding)
 
         out = []
-        for _ in range(20):
+        for _ in range(5*len(src)):
             out_vector = w * s.output() + b
             probs = dynet.softmax(out_vector)
             selection = np.argmax(probs.value())
@@ -113,14 +111,61 @@ class Seq2SeqBasic(Seq2SeqTemplate):
             s = s.add_input(embed_vector)
         return out
 
+    def beam_search_generate(self, src_seq, beam_n=5):
+        dynet.renew_cg()
+
+        embedded = self.embed_seq(src_seq)
+        input_vectors = self.encode_seq(embedded)
+
+        w = dynet.parameter(self.decoder_w)
+        b = dynet.parameter(self.decoder_b)
+
+        s = self.dec_lstm.initial_state()
+        s = s.add_input(input_vectors[-1])
+        beams = [{"state":  s,
+                  "out":    [],
+                  "err":    0}]
+        completed_beams = []
+        while len(completed_beams) < beam_n:
+            potential_beams = []
+            for beam in beams:
+                if len(beam["out"]) > 0:
+                    embed_vector = self.tgt_lookup[beam["out"][-1].i]
+                    s = beam["state"].add_input(embed_vector)
+
+                out_vector = w * s.output() + b
+                probs = dynet.softmax(out_vector)
+                probs = probs.vec_value()
+
+                for potential_next_i in range(len(probs)):
+                    potential_beams.append({"state":    s,
+                                            "out":      beam["out"]+[self.tgt_vocab[potential_next_i]],
+                                            "err":      beam["err"]-math.log(probs[potential_next_i])})
+
+            potential_beams.sort(key=lambda x:x["err"])
+            beams = potential_beams[:beam_n-len(completed_beams)]
+            completed_beams = completed_beams+[beam for beam in beams if beam["out"][-1] == self.tgt_vocab.END_TOK
+                                                                      or len(beam["out"]) > 5*len(src_seq)]
+            beams = [beam for beam in beams if beam["out"][-1] != self.tgt_vocab.END_TOK
+                                            and len(beam["out"]) <= 5*len(src_seq)]
+        completed_beams.sort(key=lambda x:x["err"])
+        return [beam["out"] for beam in completed_beams]
+
     def get_loss(self, input, output):
         dynet.renew_cg()
         embedded = self.embed_seq(input)
         encoded = self.encode_seq(embedded)[-1]
         return self.decode(encoded, output)
 
+    def get_perplexity(self, input, output, beam_n=5):
+        dynet.renew_cg()
+        embedded = self.embed_seq(input)
+        encoded = self.encode_seq(embedded)[-1]
+        loss = self.decode(encoded, output)
+        return math.exp(loss.value()/(len(output)-1))
+
     def get_bleu(self, input, output, beam_n=5):
-        guess = self.greedy_generate(input)
+        guess = self.generate(input, sampled=False)
         input_str = [tok.s for tok in guess]
         output_str = [tok.s for tok in output]
         ans = BLEU.compute(input_str, output_str, [1.0])
@@ -129,7 +174,30 @@ class Seq2SeqBasic(Seq2SeqTemplate):
 class Seq2SeqBiRNNAttn(Seq2SeqBasic):
     name="attention"
     def __init__(self, model, src_vocab, tgt_vocab, args):
-        Seq2SeqBasic.__init__(self, model, src_vocab, tgt_vocab, args)
+        self.m = model
+        self.src_vocab = src_vocab
+        self.tgt_vocab = tgt_vocab
+        self.args = args
+        # Bidirectional Encoder LSTM
+        print "Adding Forward encoder LSTM parameters"
+        self.enc_fwd_lstm = dynet.LSTMBuilder(args.layers, args.input_dim, args.hidden_dim, model)
+        print "Adding Backward encoder LSTM parameters"
+        self.enc_bwd_lstm = dynet.LSTMBuilder(args.layers, args.input_dim, args.hidden_dim, model)
+
+        #Decoder LSTM
+        print "Adding decoder LSTM parameters"
+        self.dec_lstm = dynet.LSTMBuilder(args.layers, args.hidden_dim*2 + args.hidden_dim*2, args.hidden_dim, model)
+
+        #Decoder weight and bias
+        print "Adding Decoder weight"
+        self.decoder_w = model.add_parameters( (tgt_vocab.size, args.hidden_dim))
+        print "Adding Decoder bias"
+        self.decoder_b = model.add_parameters( (tgt_vocab.size,))
+
+        print "Adding lookup parameters"
+        #Lookup parameters
+        self.src_lookup = model.add_lookup_parameters( (src_vocab.size, args.input_dim))
+        self.tgt_lookup = model.add_lookup_parameters( (tgt_vocab.size, 2*args.hidden_dim))
 
         #Attention parameters
         print "Adding Attention Parameters"
@@ -151,29 +219,31 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
         output_vectors = dynet.esum([vector*attention_weight for vector, attention_weight in zip(input_vectors, attention_weights)])
         return output_vectors
 
-    def decode(self, vectors, output):
+    def decode(self, input_vectors, output):
         tgt_toks = [self.tgt_vocab[tok] for tok in output]
 
         w = dynet.parameter(self.decoder_w)
         b = dynet.parameter(self.decoder_b)
 
-        # s = self.dec_lstm.initial_state().add_input(dynet.vecInput(self.input_dim+self.hidden_dim*2))
-        s = self.dec_lstm.initial_state().add_input(dynet.vecInput(self.args.hidden_dim * 2))
-
+        s = self.dec_lstm.initial_state()
+        s = s.add_input(dynet.concatenate([
+                                            input_vectors[-1],
+                                            dynet.vecInput(self.args.hidden_dim*2)
+                                          ]))
         loss = []
         for tok in tgt_toks:
-            embed_vector = self.tgt_lookup[tok.i]
-            attn_vector = self.attend(vectors, s)
-            # inp = dynet.concatenate([embed_vector, attn_vector])
-            inp = attn_vector
-            s = s.add_input(inp)
             out_vector = w * s.output() + b
             probs = dynet.softmax(out_vector)
             loss.append(-dynet.log(dynet.pick(probs, tok.i)))
+            embed_vector = self.tgt_lookup[tok.i]
+            attn_vector = self.attend(input_vectors, s)
+            inp = dynet.concatenate([embed_vector, attn_vector])
+            s = s.add_input(inp)
+
         loss = dynet.esum(loss)
         return loss
 
-    def sampled_generate(self, src_seq):
+    def generate(self, src_seq, sampled=False):
         def sample(probs):
             rnd = random.random()
             for i, p in enumerate(probs):
@@ -184,84 +254,58 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
         dynet.renew_cg()
 
         embedded = self.embed_seq(src_seq)
-        encoded = self.encode_seq(embedded)
+        input_vectors = self.encode_seq(embedded)
 
         w = dynet.parameter(self.decoder_w)
         b = dynet.parameter(self.decoder_b)
 
-        # s = self.dec_lstm.initial_state().add_input(dynet.vecInput(self.input_dim + self.hidden_dim * 2))
-        s = self.dec_lstm.initial_state().add_input(dynet.vecInput(self.args.hidden_dim * 2))
-        out = [self.tgt_vocab.START_TOK]
-        for i in range(len(src_seq)*5):
-            embed_vector = self.tgt_lookup[out[-1].i]
-            attn_vector = self.attend(encoded, s)
-            # inp = dynet.concatenate([embed_vector, attn_vector])
-            inp = attn_vector
-
-            s = s.add_input(inp)
-            out_vector = w * s.output() + b
-            probs = dynet.softmax(out_vector)
-            probs = probs.vec_value()
-            next_symbol = sample(probs)
-            out.append(self.tgt_vocab[next_symbol])
-            if self.tgt_vocab[next_symbol] == self.tgt_vocab.END_TOK:
-                break
-        return out
-
-    def greedy_generate(self, src_seq):
-        dynet.renew_cg()
-
-        embedded = self.embed_seq(src_seq)
-        encoded = self.encode_seq(embedded)
-
-        w = dynet.parameter(self.decoder_w)
-        b = dynet.parameter(self.decoder_b)
-
-        # s = self.dec_lstm.initial_state().add_input(dynet.vecInput(self.input_dim + self.hidden_dim * 2))
-        s = self.dec_lstm.initial_state().add_input(dynet.vecInput(self.args.hidden_dim * 2))
+        s = self.dec_lstm.initial_state()
+        s = s.add_input(dynet.concatenate([
+                                            input_vectors[-1],
+                                            dynet.vecInput(self.args.hidden_dim*2)
+                                          ]))
         out = []
-        for i in range(len(src_seq)*5):
-            # embed_vector = self.tgt_lookup[out[-1].i]
-            attn_vector = self.attend(encoded, s)
-            # inp = dynet.concatenate([embed_vector, attn_vector])
-            inp = attn_vector
-
-            s = s.add_input(inp)
+        for i in range(1+len(src_seq)*5):
             out_vector = w * s.output() + b
             probs = dynet.softmax(out_vector)
             probs = probs.vec_value()
-            next_symbol = max(enumerate(probs), key=lambda x:x[1])[0]
+            next_symbol = sample(probs) if sampled else max(enumerate(probs), key=lambda x:x[1])[0]
             out.append(self.tgt_vocab[next_symbol])
             if self.tgt_vocab[next_symbol] == self.tgt_vocab.END_TOK:
                 break
+            embed_vector = self.tgt_lookup[out[-1].i]
+            attn_vector = self.attend(input_vectors, s)
+            inp = dynet.concatenate([embed_vector, attn_vector])
+            s = s.add_input(inp)
         return out
-
 
     def beam_search_generate(self, src_seq, beam_n=5):
         dynet.renew_cg()
 
         embedded = self.embed_seq(src_seq)
-        encoded = self.encode_seq(embedded)
+        input_vectors = self.encode_seq(embedded)
 
         w = dynet.parameter(self.decoder_w)
         b = dynet.parameter(self.decoder_b)
 
-        # s = self.dec_lstm.initial_state().add_input(dynet.vecInput(self.input_dim + self.hidden_dim * 2))
-        s = self.dec_lstm.initial_state().add_input(dynet.vecInput(self.args.hidden_dim * 2))
+        s = self.dec_lstm.initial_state()
+        s = s.add_input(dynet.concatenate([
+                                            input_vectors[-1],
+                                            dynet.vecInput(self.args.hidden_dim*2)
+                                          ]))
         beams = [{"state":  s,
                   "out":    [],
-                  # "out":    [self.tgt_vocab.START_TOK],
                   "err":    0}]
         completed_beams = []
         while len(completed_beams) < beam_n:
             potential_beams = []
             for beam in beams:
-                attn_vector = self.attend(encoded, beam["state"])
-                # embed_vector = self.tgt_lookup[beam["out"][-1].i]
-                # inp = dynet.concatenate([embed_vector, attn_vector])
-                inp = attn_vector
+                if len(beam["out"]) > 0:
+                    attn_vector = self.attend(input_vectors, beam["state"])
+                    embed_vector = self.tgt_lookup[beam["out"][-1].i]
+                    inp = dynet.concatenate([embed_vector, attn_vector])
+                    s = beam["state"].add_input(inp)
 
-                s = beam["state"].add_input(inp)
                 out_vector = w * s.output() + b
                 probs = dynet.softmax(out_vector)
                 probs = probs.vec_value()
@@ -286,10 +330,15 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
         encoded = self.encode_seq(embedded)
         return self.decode(encoded, output)
 
+    def get_perplexity(self, input, output):
+        dynet.renew_cg()
+        embedded = self.embed_seq(input)
+        encoded = self.encode_seq(embedded)
+        loss = self.decode(encoded, output)
+        return math.exp(loss.value()/(len(output)-1))
+
     def get_bleu(self, input, output, beam_n=5):
         guesses = self.beam_search_generate(input, beam_n)
-        # guess = self.sampled_generate(input)
-        # guess = self.greedy_generate(input)
         input_strs = [[tok.s for tok in guess] for guess in guesses]
         output_strs = [tok.s for tok in output]
         ans = max([BLEU.compute(input_str, output_strs, [1.0]) for input_str in input_strs])

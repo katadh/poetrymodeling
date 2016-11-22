@@ -40,6 +40,7 @@ parser.add_argument("--output")
 
 ## choose what model to use
 parser.add_argument("--model", default="basic")
+parser.add_argument("--reader_mode")
 parser.add_argument("--load")
 parser.add_argument("--save")
 
@@ -64,33 +65,36 @@ if args.load:
     print "loading..."
     s2s = S2SModel.load(model, args.load)
 else:
+    print "fresh model. getting vocab...",
     BEGIN_TOKEN = '<s>'
     END_TOKEN = '<e>'
-    src_reader = util.CMUDictCorpusReader(args.train, mode="cmudict_chars", begin=BEGIN_TOKEN, end=END_TOKEN)
-    src_vocab = util.Vocab.load_from_corpus(src_reader, remake=args.rebuild_vocab)
+    src_reader = util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN)
+    src_vocab = util.Vocab.load_from_corpus(src_reader, remake=args.rebuild_vocab, src_or_tgt="src")
     src_vocab.START_TOK = src_vocab[BEGIN_TOKEN]
     src_vocab.END_TOK = src_vocab[END_TOKEN]
-    tgt_reader = util.CMUDictCorpusReader(args.train, mode="cmudict_phones", begin=BEGIN_TOKEN, end=END_TOKEN)
-    tgt_vocab = util.Vocab.load_from_corpus(tgt_reader, remake=args.rebuild_vocab)
+    tgt_reader = util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN)
+    tgt_vocab = util.Vocab.load_from_corpus(tgt_reader, remake=args.rebuild_vocab, src_or_tgt="tgt")
     tgt_vocab.START_TOK = tgt_vocab[BEGIN_TOKEN]
     tgt_vocab.END_TOK = tgt_vocab[END_TOKEN]
     src_vocab.add_unk(args.unk_thresh)
     tgt_vocab.add_unk(args.unk_thresh)
+    print "making model..."
     s2s = S2SModel(model, src_vocab, tgt_vocab, args)
-
-
+    print "...done."
 
 # load corpus
 
-train_data = list(util.CMUDictCorpusReader(args.train, mode="cmudict", begin=BEGIN_TOKEN, end=END_TOKEN))
+print "loading corpus..."
+train_data = list(util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
 if args.valid:
-    valid_data = list(util.CMUDictCorpusReader(args.valid, mode="cmudict", begin=BEGIN_TOKEN, end=END_TOKEN))
+    valid_data = list(util.get_reader(args.reader_mode)(args.valid, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
 else:
     if args.percent_valid > 1: cutoff = args.percent_valid
     else: cutoff = int(len(train_data)*(args.percent_valid))
     valid_data = train_data[-cutoff:]
     train_data = train_data[:-cutoff]
     print "Train set of size", len(train_data), "/ Validation set of size", len(valid_data)
+print "done."
 
 if args.output:
     outfile = open(args.output, 'w')
@@ -101,7 +105,7 @@ if args.output:
 
 # run training loop
 
-char_count = sent_count = cum_loss = cum_bleu = 0.0
+char_count = sent_count = cum_loss = 0.0
 _start = time.time()
 try:
     for ITER in range(args.epochs):
@@ -112,35 +116,36 @@ try:
             src = [src_vocab[s] for s in src]
             tgt = [tgt_vocab[s] for s in tgt]
             sample_num = 1+i+(len(train_data)*ITER)
+            # print sample_num, src_vocab.pp(src, ' '), tgt_vocab.pp(tgt, ' ')
 
             if sample_num % args.log_train_every_n == 0:
                 print ITER, sample_num, " ",
                 sgd.status()
                 print "L:", cum_loss / char_count if char_count != 0 else None,
-                # print "BLEU:", cum_bleu / sent_count if sent_count != 0 else None,
                 print "T:", (time.time() - _start),
                 _start = time.time()
                 # sample = lm.beam_search_generate(src, beam_n=args.beam_size)
-                # sample = lm.sampled_generate(src)
-                sample = s2s.greedy_generate(src)
-                if sample: print src_vocab.pp(src), tgt_vocab.pp(tgt, ' '), tgt_vocab.pp(sample, ' '),
+                sample = s2s.generate(src, sampled=False)
+                if sample: print src_vocab.pp(src, ' '), tgt_vocab.pp(tgt, ' '), tgt_vocab.pp(sample, ' '),
                 char_count = sent_count = cum_loss = cum_bleu = 0.0
                 print
             # end of test logging
 
             if sample_num % args.log_valid_every_n == 0:
-                v_char_count = v_sent_count = v_cum_loss = v_cum_bleu = 0.0
+                v_char_count = v_sent_count = v_cum_loss = v_cum_bleu = v_cum_perp = 0.0
                 v_start = time.time()
                 for v_src, v_tgt in valid_data:
                     v_src = [src_vocab[tok] for tok in v_src]
                     v_tgt = [tgt_vocab[tok] for tok in v_tgt]
                     v_loss = s2s.get_loss(v_src, v_tgt)
                     v_cum_loss += v_loss.scalar_value()
-                    v_cum_bleu += s2s.get_bleu(v_src, v_tgt, args.beam_size)
+                    v_cum_perp += s2s.get_perplexity(v_src, v_tgt)
+                    # v_cum_bleu += s2s.get_bleu(v_src, v_tgt, args.beam_size)
                     v_char_count += len(v_tgt)-1
                     v_sent_count += 1
                 print "[Validation "+str(sample_num) + "]\t" + \
                       "Loss: "+str(v_cum_loss / v_char_count) + "\t" + \
+                      "Perp: "+str(v_cum_perp / v_sent_count) + "\t" + \
                       "BLEU: "+str(v_cum_bleu / v_sent_count) + "\t" + \
                       "Time: "+str(time.time() - v_start),
                 if args.output:
@@ -149,9 +154,10 @@ try:
                         outfile.write(str(ITER) + "\t" + \
                                       str(sample_num) + "\t" + \
                                       str(v_cum_loss / v_char_count) + "\t" + \
+                                      str(v_cum_perp / v_sent_count) + "\t" + \
                                       str(v_cum_bleu / v_sent_count) + "\n")
                 print "\n"
-         # end of validation logging
+            # end of validation logging
 
             loss = s2s.get_loss(src, tgt)
             cum_loss += loss.value()
@@ -161,7 +167,6 @@ try:
             loss.backward()
             sgd.update(args.learning_rate)
 
-            # cum_bleu += lm.get_bleu(src, tgt, args.beam_size)
             ### end of one-sentence train loop
         sgd.update_epoch(args.learning_rate)
         ### end of iteration
