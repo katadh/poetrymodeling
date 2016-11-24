@@ -212,6 +212,7 @@ class CMUDictCorpusReader(CorpusReaderTemplate):
                 doc = f.read()
                 for line in doc.split("\n"):
                     if not line: continue
+                    if line[0] not in "QWERTYUIOPASDFGHJKLZXCVBNM": continue
                     spell, pronounce = line.split("  ")
                     if "(" in spell: spell = spell.split("(")[0]
                     spell = [self.begin]+list(spell)+[self.end]
