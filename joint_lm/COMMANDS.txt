@@ -1,0 +1,3 @@
+python trains2s.py --train=../data/cmudict.txt --reader_mode=cmudict --save=pronouncer.model
+
+python trains2s.py --dynet-mem 1600 --train=../data/ohhla --reader_mode=ohhla_line_pairs --save=ohhla.default.small.model --model=attention

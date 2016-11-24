@@ -249,6 +249,31 @@ class OHHLACorpusReader(CorpusReaderTemplate):
                         outp_toks = ' '.join(l2).split(" ") + [self.end]
                         yield (inp_toks, outp_toks)
 
+class OEDILFCorpusReader(CorpusReaderTemplate):
+    names = {"oedilf"}
+    def __init__(self, fname, begin=None, end=None, mode="oedilf"):
+        self.fname = fname
+        self.mode = mode
+        self.begin = begin
+        self.end = end
+        self.seq2seq = False
+
+    def __iter__(self):
+        if os.path.isdir(self.fname):
+            filenames = [os.path.join(self.fname,f) for f in os.listdir(self.fname)]
+        else:
+            filenames = [self.fname]
+        for filename in filenames:
+            with open(filename) as f:
+                doc = f.read()
+                if self.mode == "oedilf":
+                    toks = [self.begin]
+                    for line in doc.split("\n"):
+                        if not line: continue
+                        line = ''.join([char for char in line.lower() if char in "qwertyuioplkjhgfdsazxcvbnm "])
+                        toks +=  ' '.join(tokenize(line)).split(" ") + ['<br>']
+                    yield toks + [self.end]
+
 class SquadCorpusReader(CorpusReaderTemplate):
     names = {"squad", "squad_ptr", "squad_word"}
     def __init__(self, fname, begin=None, middle=None, end=None, mode="squad"):

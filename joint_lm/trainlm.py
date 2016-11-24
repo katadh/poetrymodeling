@@ -58,7 +58,7 @@ else: args.rnn = dynet.SimpleRNNBuilder
 
 BEGIN_TOKEN = '<s>'
 END_TOKEN = '<e>'
-reader = util.OHHLACorpusReader(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN)
+reader = util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN)
 vocab = util.Vocab.load_from_corpus(reader, remake=args.rebuild_vocab)
 vocab.START_TOK = vocab[BEGIN_TOKEN]
 vocab.END_TOK = vocab[END_TOKEN]
@@ -74,10 +74,10 @@ if args.s2s:
 RNNModel = rnnlm.get_lm(args.model)
 lm = RNNModel(model, vocab, args)
 
-train_data = list(util.OHHLACorpusReader(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
+train_data = list(util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
 if not args.split_train:
-    valid_data = list(util.OHHLACorpusReader(args.valid, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
-    test_data  = list(util.OHHLACorpusReader(args.test, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
+    valid_data = list(util.get_reader(args.reader_mode)(args.valid, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
+    test_data  = list(util.get_reader(args.reader_mode)(args.test, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
 else:
     valid_data = train_data[-int(len(train_data)*(args.percent_valid+args.percent_test)):-int(len(train_data)*args.percent_test)]
     test_data = train_data[-int(len(train_data)*args.percent_test):]
