@@ -162,10 +162,10 @@ for t_sent in test_data:
     t_cum_perplexity += math.exp(t_loss.scalar_value()/perplexity_denom(t_sent))
     t_char_count += perplexity_denom(t_sent)
     t_sent_count += 1
-print "[Test]\t" + \
-      "Loss: "+str(t_cum_loss / t_char_count) + "\t" + \
-      "Perplexity: "+str(t_cum_perplexity / t_sent_count) + "\t" + \
-      "Time: "+str(time.time() - t_start),
+#print "[Test]\t" + \
+#      "Loss: "+str(t_cum_loss / t_char_count) + "\t" + \
+#      "Perplexity: "+str(t_cum_perplexity / t_sent_count) + "\t" + \
+#      "Time: "+str(time.time() - t_start),
 if args.output:
     print "(logging to", args.output + ")"
     with open(args.output, "a") as outfile:
