@@ -57,7 +57,7 @@ class Seq2SeqBasic(Seq2SeqTemplate):
         src_vocab = util.Vocab.load(path+"/vocab.src")
         tgt_vocab = util.Vocab.load(path+"/vocab.tgt")
         with open(path+"/args", "r") as f: args = pickle.load(f)
-        s2s = Seq2SeqBiRNNAttn(model, src_vocab, tgt_vocab, args)
+        s2s = cls(model, src_vocab, tgt_vocab, args)
         s2s.m.load(path+"/params")
         return s2s
 
@@ -78,9 +78,7 @@ class Seq2SeqBasic(Seq2SeqTemplate):
 
         w = dynet.parameter(self.decoder_w)
         b = dynet.parameter(self.decoder_b)
-
         s = self.dec_lstm.initial_state().add_input(encoding)
-
         loss = []
         for tok in tgt_toks:
             out_vector = w * s.output() + b
@@ -169,6 +167,13 @@ class Seq2SeqBasic(Seq2SeqTemplate):
         input_str = [tok.s for tok in guess]
         output_str = [tok.s for tok in output]
         ans = BLEU.compute(input_str, output_str, [1.0])
+        return ans
+
+    def get_em(self, input, output, beam_n=5):
+        guess = self.generate(input, sampled=False)
+        input_str = [tok.s for tok in guess]
+        output_str = [tok.s for tok in output]
+        ans = 1 if input_str == output_str else 0
         return ans
 
 class Seq2SeqBiRNNAttn(Seq2SeqBasic):

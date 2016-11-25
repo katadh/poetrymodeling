@@ -111,6 +111,8 @@ class Vocab(object):
         strings = [unk_string]
         for token in self.tokens:
             if token.count >= thresh: strings.append(token.s)
+        if self.START_TOK is not None and self.START_TOK not in strings: strings.append(self.START_TOK.s)
+        if self.END_TOK is not None and self.END_TOK not in strings: strings.append(self.END_TOK.s)
         self.tokens = set([])
         self.strings = set([])
         self.i2t = defaultdict(lambda :self.unk)
@@ -118,8 +120,8 @@ class Vocab(object):
         for string in strings:
             self.add_string(string)
         self.unk = self.s2t[unk_string]
-        self.START_TOK = self.s2t[self.START_TOK.s]
-        self.END_TOK = self.s2t[self.END_TOK.s]
+        if self.START_TOK is not None: self.START_TOK = self.s2t[self.START_TOK.s]
+        if self.END_TOK is not None: self.END_TOK = self.s2t[self.END_TOK.s]
 
     def pp(self, seq, delimiter=u''):
         return delimiter.join([unicode(self[item].s) for item in seq])
@@ -150,14 +152,14 @@ class Vocab(object):
             v.unk = info_dict["unk"]
             v.START_TOK = info_dict["START_TOK"]
             v.END_TOK = info_dict["END_TOK"]
-            defaultf = lambda :v.unk if v.unk is not None else Token.not_found
+            defaultf = (lambda :v.unk) if (v.unk is not None) else Token.not_found
             v.s2t = defaultdict(defaultf, info_dict["s2t"])
             v.i2t = defaultdict(defaultf, info_dict["i2t"])
             return v
 
     @classmethod
     def load_from_corpus(cls, reader, remake=False, src_or_tgt="src"):
-        vocab_fname = reader.fname+".vocab."+reader.mode
+        vocab_fname = reader.fname+".vocab."+reader.mode+"."+src_or_tgt
         if not remake and os.path.isfile(vocab_fname):
             return Vocab.load(vocab_fname)
         else:
@@ -176,8 +178,8 @@ class Vocab(object):
                     print "...", count,
                     sys.stdout.flush()
             print "saving vocab of size", v.size
-            v.START_TOK = reader.begin
-            v.END_TOK = reader.end
+            v.START_TOK = v[reader.begin] if reader.begin is not None else None
+            v.END_TOK = v[reader.end] if reader.end is not None else None
             v.save(vocab_fname)
             return v
 
@@ -215,8 +217,9 @@ class CMUDictCorpusReader(CorpusReaderTemplate):
                     if line[0] not in "QWERTYUIOPASDFGHJKLZXCVBNM": continue
                     spell, pronounce = line.split("  ")
                     if "(" in spell: spell = spell.split("(")[0]
-                    spell = [self.begin]+list(spell)+[self.end]
-                    pronounce = [self.begin]+pronounce.split(" ")+[self.end]
+                    spell = [char for char in spell if char in "QWERTYUIOPASDFGHJKLZXCVBNM"]
+                    spell = [self.begin]+spell+[self.end]
+                    pronounce = pronounce.split(" ")+[self.end]
                     yield (spell, pronounce)
 
 class OHHLACorpusReader(CorpusReaderTemplate):
@@ -272,7 +275,9 @@ class OEDILFCorpusReader(CorpusReaderTemplate):
                     for line in doc.split("\n"):
                         if not line: continue
                         line = ''.join([char for char in line.lower() if char in "qwertyuioplkjhgfdsazxcvbnm "])
-                        toks +=  ' '.join(tokenize(line)).split(" ") + ['<br>']
+                        
+                        line_toks =  ' '.join(tokenize(line)).split(" ") + ['<br>']
+                        toks += [tok for tok in line_toks if tok != '']
                     yield toks + [self.end]
 
 class SquadCorpusReader(CorpusReaderTemplate):

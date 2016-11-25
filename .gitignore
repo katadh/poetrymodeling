@@ -7,3 +7,5 @@ data/*
 */params
 */vocab.src
 */vocab.tgt
+*.model/*
+*.model.checkpoint/*

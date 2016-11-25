@@ -54,6 +54,8 @@ if args.rnn == "lstm": args.rnn = dynet.LSTMBuilder
 elif args.rnn == "gru": args.rnn = dynet.GRUBuilder
 else: args.rnn = dynet.SimpleRNNBuilder
 
+BEGIN_TOKEN = '<s>'
+END_TOKEN = '<e>'
 
 # define model
 
@@ -64,19 +66,18 @@ S2SModel = seq2seq.get_s2s(args.model)
 if args.load:
     print "loading..."
     s2s = S2SModel.load(model, args.load)
+    src_vocab = s2s.src_vocab
+    tgt_vocab = s2s.tgt_vocab
 else:
     print "fresh model. getting vocab...",
-    BEGIN_TOKEN = '<s>'
-    END_TOKEN = '<e>'
     src_reader = util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN)
     src_vocab = util.Vocab.load_from_corpus(src_reader, remake=args.rebuild_vocab, src_or_tgt="src")
     src_vocab.START_TOK = src_vocab[BEGIN_TOKEN]
     src_vocab.END_TOK = src_vocab[END_TOKEN]
-    tgt_reader = util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN)
-    tgt_vocab = util.Vocab.load_from_corpus(tgt_reader, remake=args.rebuild_vocab, src_or_tgt="tgt")
-    tgt_vocab.START_TOK = tgt_vocab[BEGIN_TOKEN]
-    tgt_vocab.END_TOK = tgt_vocab[END_TOKEN]
     src_vocab.add_unk(args.unk_thresh)
+    tgt_reader = util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, end=END_TOKEN)
+    tgt_vocab = util.Vocab.load_from_corpus(tgt_reader, remake=args.rebuild_vocab, src_or_tgt="tgt")
+    tgt_vocab.END_TOK = tgt_vocab[END_TOKEN]
     tgt_vocab.add_unk(args.unk_thresh)
     print "making model..."
     s2s = S2SModel(model, src_vocab, tgt_vocab, args)
@@ -132,7 +133,7 @@ try:
             # end of test logging
 
             if sample_num % args.log_valid_every_n == 0:
-                v_char_count = v_sent_count = v_cum_loss = v_cum_bleu = v_cum_perp = 0.0
+                v_char_count = v_sent_count = v_cum_loss = v_cum_bleu = v_cum_em = v_cum_perp = 0.0
                 v_start = time.time()
                 for v_src, v_tgt in valid_data:
                     v_src = [src_vocab[tok] for tok in v_src]
@@ -140,6 +141,7 @@ try:
                     v_loss = s2s.get_loss(v_src, v_tgt)
                     v_cum_loss += v_loss.scalar_value()
                     v_cum_perp += s2s.get_perplexity(v_src, v_tgt)
+                    v_cum_em += s2s.get_em(v_src, v_tgt)
                     # v_cum_bleu += s2s.get_bleu(v_src, v_tgt, args.beam_size)
                     v_char_count += len(v_tgt)-1
                     v_sent_count += 1
@@ -147,6 +149,7 @@ try:
                       "Loss: "+str(v_cum_loss / v_char_count) + "\t" + \
                       "Perp: "+str(v_cum_perp / v_sent_count) + "\t" + \
                       "BLEU: "+str(v_cum_bleu / v_sent_count) + "\t" + \
+                      "EM: "  +str(v_cum_em   / v_sent_count) + "\t" + \
                       "Time: "+str(time.time() - v_start),
                 if args.output:
                     print "(logging to", args.output + ")"
@@ -155,8 +158,12 @@ try:
                                       str(sample_num) + "\t" + \
                                       str(v_cum_loss / v_char_count) + "\t" + \
                                       str(v_cum_perp / v_sent_count) + "\t" + \
+                                      str(v_cum_em   / v_sent_count) + "\t" + \
                                       str(v_cum_bleu / v_sent_count) + "\n")
                 print "\n"
+                if args.save:
+                    print "saving checkpoint..."
+                    s2s.save(args.save+".checkpoint")
             # end of validation logging
 
             loss = s2s.get_loss(src, tgt)

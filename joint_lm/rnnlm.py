@@ -73,8 +73,13 @@ class BaselineRNNLM(RNNLanguageModel):
             state = state.add_input(x_t)
             y_t = state.output()
             r_t = bias + (R * y_t)
-            ydist = dynet.softmax(r_t)
-            dist = ydist.vec_value()
+            scores = r_t.vec_value()
+            if self.vocab.unk is not None:
+                ydist = util.softmax(scores[:self.vocab.unk.i]+scores[self.vocab.unk.i+1:]) # remove UNK
+                dist = ydist[:self.vocab.unk.i].tolist()+[0]+ydist[self.vocab.unk.i:].tolist()
+            else:
+                ydist = util.softmax(scores)
+                dist = ydist
             rnd = random.random()
             for i,p in enumerate(dist):
                 rnd -= p
@@ -94,13 +99,11 @@ class BasicJointRNNLM(RNNLanguageModel):
         self.args = args
 
         self.s2s = args.s2s
-        self.rnn = args.rnn(args.layers, self.s2s.hidden_dim + args.input_dim, args.hidden_dim, model)
+        self.rnn = args.rnn(args.layers, self.s2s.args.hidden_dim*2 + args.input_dim, args.hidden_dim, model)
 
         self.lookup = model.add_lookup_parameters((vocab.size, args.input_dim))
         self.R = model.add_parameters((vocab.size, args.hidden_dim))
         self.bias = model.add_parameters((vocab.size,))
-
-
 
     def BuildLMGraph(self, sent, sent_args=None):
         dynet.renew_cg()
@@ -112,7 +115,15 @@ class BasicJointRNNLM(RNNLanguageModel):
         state = init_state
 
         for (cw,nw) in zip(sent,sent[1:]):
-            x_t = dynet.concatenate([self.lookup[cw.i], self.s2s.encode_seq(cw)])
+            cw = self.vocab[cw]
+            nw = self.vocab[nw]
+
+            spelling = [self.s2s.src_vocab[letter] for letter in cw.s.upper()]
+            embedded_spelling = self.s2s.embed_seq(spelling)
+            pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
+            fpv = dynet.nobackprop(pron_vector)
+
+            x_t = dynet.concatenate([self.lookup[cw.i], fpv])
             state = state.add_input(x_t)
             y_t = state.output()
             r_t = bias + (R * y_t)
@@ -133,12 +144,21 @@ class BasicJointRNNLM(RNNLanguageModel):
         bias = dynet.parameter(self.bias)
         cw = first
         while True:
-            x_t = dynet.concatenate([self.lookup[cw.i], self.s2s.encode_seq(cw)])
+            spelling = [self.s2s.src_vocab[letter] for letter in self.vocab[cw].s.upper()]
+            embedded_spelling = self.s2s.embed_seq(spelling)
+            pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
+
+            x_t = dynet.concatenate([self.lookup[cw], pron_vector])
             state = state.add_input(x_t)
             y_t = state.output()
             r_t = bias + (R * y_t)
-            ydist = dynet.softmax(r_t)
-            dist = ydist.vec_value()
+            scores = r_t.vec_value()
+            if self.vocab.unk is not None:
+                ydist = util.softmax(scores[:self.vocab.unk.i]+scores[self.vocab.unk.i+1:]) # remove UNK
+                dist = ydist[:self.vocab.unk.i].tolist()+[0]+ydist[self.vocab.unk.i:].tolist()
+            else:
+                ydist = util.softmax(scores)
+                dist = ydist
             rnd = random.random()
             for i,p in enumerate(dist):
                 rnd -= p
@@ -150,7 +170,7 @@ class BasicJointRNNLM(RNNLanguageModel):
         return res
 
 class PhonemeOnlyRNNLM(RNNLanguageModel):
-    name = "baseline"
+    name = "prononly"
 
     def __init__(self, model, vocab, args):
         self.m = model
@@ -158,10 +178,8 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
         self.args = args
 
         self.s2s = args.s2s
-        self.rnn = args.rnn(args.layers, self.s2s.hidden_dim, args.hidden_dim, model)
+        self.rnn = args.rnn(args.layers, self.s2s.args.hidden_dim*2, args.hidden_dim, model)
 
-
-        self.lookup = model.add_lookup_parameters((vocab.size, args.input_dim))
         self.R = model.add_parameters((vocab.size, args.hidden_dim))
         self.bias = model.add_parameters((vocab.size,))
 
@@ -175,11 +193,19 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
         state = init_state
 
         for (cw,nw) in zip(sent,sent[1:]):
-            x_t = self.s2s.encode_seq(cw)
+            cw = self.vocab[cw]
+            nw = self.vocab[nw]
+
+            spelling = [self.s2s.src_vocab[letter] for letter in cw.s.upper()]
+            embedded_spelling = self.s2s.embed_seq(spelling)
+            pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
+            fpv = dynet.nobackprop(pron_vector)
+
+            x_t = fpv
             state = state.add_input(x_t)
             y_t = state.output()
             r_t = bias + (R * y_t)
-            err = dynet.pickneglogsoftmax(r_t, int(nw))
+            err = dynet.pickneglogsoftmax(r_t, int(nw.i))
             errs.append(err)
         nerr = dynet.esum(errs)
         return nerr
@@ -196,12 +222,21 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
         bias = dynet.parameter(self.bias)
         cw = first
         while True:
-            x_t = self.lookup[cw]
+            spelling = [self.s2s.src_vocab[letter] for letter in self.vocab[cw].s.upper()]
+            embedded_spelling = self.s2s.embed_seq(spelling)
+            pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
+
+            x_t = pron_vector
             state = state.add_input(x_t)
             y_t = state.output()
             r_t = bias + (R * y_t)
-            ydist = dynet.softmax(r_t)
-            dist = ydist.vec_value()
+            scores = r_t.vec_value()
+            if self.vocab.unk is not None:
+                ydist = util.softmax(scores[:self.vocab.unk.i]+scores[self.vocab.unk.i+1:]) # remove UNK
+                dist = ydist[:self.vocab.unk.i].tolist()+[0]+ydist[self.vocab.unk.i:].tolist()
+            else:
+                ydist = util.softmax(scores)
+                dist = ydist
             rnd = random.random()
             for i,p in enumerate(dist):
                 rnd -= p

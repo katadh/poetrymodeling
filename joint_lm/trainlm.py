@@ -19,7 +19,7 @@ parser.add_argument("--test")
 
 ## alternatively, load one dataset and split it
 parser.add_argument("--split_train", action='store_true')
-parser.add_argument("--percent_valid", default=.02, type=float)
+parser.add_argument("--percent_valid", default=1000, type=float)
 parser.add_argument("--percent_test", default=.05, type=float)
 
 ## vocab parameters
@@ -45,6 +45,7 @@ parser.add_argument('--ignore_parens_perplexity', action='store_true')
 ## choose what model to use
 parser.add_argument("--model", default="baseline")
 parser.add_argument("--s2s")
+parser.add_argument("--s2s_type", default="basic")
 
 ## model-specific parameters
 parser.add_argument("--sample_count", default=10, type=int)
@@ -69,7 +70,7 @@ sgd = dynet.SimpleSGDTrainer(model)
 
 if args.s2s:
     print "loading..."
-    args.s2s = seq2seq.Seq2SeqBasic.load(model, args.s2s)
+    args.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
 
 RNNModel = rnnlm.get_lm(args.model)
 lm = RNNModel(model, vocab, args)
@@ -79,9 +80,13 @@ if not args.split_train:
     valid_data = list(util.get_reader(args.reader_mode)(args.valid, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
     test_data  = list(util.get_reader(args.reader_mode)(args.test, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
 else:
-    valid_data = train_data[-int(len(train_data)*(args.percent_valid+args.percent_test)):-int(len(train_data)*args.percent_test)]
-    test_data = train_data[-int(len(train_data)*args.percent_test):]
-    train_data = train_data[:-int(len(train_data)*(args.percent_valid+args.percent_test))]
+    if args.percent_valid > 1: cutoff = args.percent_valid
+    else: cutoff = int(len(train_data)*(args.percent_valid))
+    valid_data = train_data[-cutoff:]
+    train_data = train_data[:-cutoff]
+    #valid_data = train_data[-int(len(train_data)*(args.percent_valid+args.percent_test)):-int(len(train_data)*args.percent_test)]
+    #test_data = train_data[-int(len(train_data)*args.percent_test):]
+    #train_data = train_data[:-int(len(train_data)*(args.percent_valid+args.percent_test))]
 
 if args.output:
     outfile = open(args.output, 'w')
