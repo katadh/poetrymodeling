@@ -1,3 +1,9 @@
 python trains2s.py --train=../data/cmudict --reader_mode=cmudict --save=pronouncer.model --model=attention --output=attnpron_log.txt  --unk_thresh=0 --input_dim=64 --hidden_dim=128 --attention_dim=128
 
 python trains2s.py --dynet-mem 1600 --train=../data/ohhla --reader_mode=ohhla_line_pairs --save=ohhla.default.small.model --model=attention
+
+python trainlm.py --train=../data/oedilf --reader_mode=oedilf --split_train --input_dim=64 --hidden_dim=256 --output=basic_model.log
+
+python trainlm.py --train=../data/oedilf --reader_mode=oedilf --model=joint --s2s=basicpronouner.model --s2s_type=basic --split_train --input_dim=64 --hidden_dim=256 --output=joint_basic_model.log
+
+python trainlm.py --train=../data/oedilf --reader_mode=oedilf --model=joint --s2s=attpronouncer.model --s2s_type=attention --split_train --input_dim=64 --hidden_dim=256 --output=joint_attn_model.log
