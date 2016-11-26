@@ -42,7 +42,7 @@ class Seq2SeqBasic(Seq2SeqTemplate):
         print "Adding lookup parameters"
         #Lookup parameters
         self.src_lookup = model.add_lookup_parameters( (src_vocab.size, args.input_dim))
-        self.tgt_lookup = model.add_lookup_parameters( (tgt_vocab.size, 2*args.hidden_dim))
+        self.tgt_lookup = model.add_lookup_parameters( (tgt_vocab.size, 2*args.hidden_dim)) #??
 
     def save(self, path):
         if not os.path.exists(path): os.makedirs(path)
@@ -62,8 +62,14 @@ class Seq2SeqBasic(Seq2SeqTemplate):
         return s2s
 
     def embed_seq(self, seq):
-        word = [self.src_lookup[self.src_vocab[tok].i] for tok in seq]
+        
+        word = [self.src_lookup[self.src_vocab[tok].i] for tok in seq] ##? self.src_vocab[tok].i ?
         return word
+
+    def embed_batch_seq(self, wids):
+        
+        embedded_batch = [dynet.lookup_batch[self.src_lookup, wid] for wid in wids] 
+        return embedded_batch
 
     def encode_seq(self, src_seq):
         src_seq_rev = list(reversed(src_seq))
@@ -72,6 +78,28 @@ class Seq2SeqBasic(Seq2SeqTemplate):
         bwd_vectors = list(reversed(bwd_vectors))
         vectors = [dynet.concatenate(list(p)) for p in zip(fwd_vectors, bwd_vectors)]
         return vectors
+
+    def encode_batch_seq(self, src_seq, src_seq_rev, sentLengths):
+
+        # [src[i] for src in src_seq for i in range(len(src_seq[0]))]
+        fwd_vectors = [self.enc_fwd_lstm.initial_state().transduce(src) for src in src_seq]
+        bwd_vectors = [self.enc_bwd_lstm.initial_state().transduce(src_rev) for src_rev in src_seq_rev]
+        
+        bwd_vectors_T = dynet.transpose(bwd_vectors)
+
+        i = 0
+        for vec, sentLen in izip(bwd_vectors_T,range(len(sentLengths))):
+            sent_vec = vec[:sentLen][::-1]
+            vec[:sentLen] = sent_vec
+            bwd_vectors_T[i] = vec
+            i += 1
+
+        bwd_vectors = dynet.transpose(bwd_vectors_T)
+
+        vectors = [dynet.concatenate(list(p)) for p in zip(fwd_vectors, bwd_vectors)]
+        return vectors
+
+
 
     def decode(self, encoding, output):
         tgt_toks = [self.tgt_vocab[tok] for tok in output]
@@ -88,6 +116,35 @@ class Seq2SeqBasic(Seq2SeqTemplate):
             s = s.add_input(embed_vector)
         loss = dynet.esum(loss)
         return loss
+
+
+    def decode_batch(self, encoding, output_batch):
+
+        w = dynet.parameter(self.decoder_w)
+        b = dynet.parameter(self.decoder_b)
+        s = self.dec_lstm.initial_state().add_input(encoding)
+        losses = []
+
+        for wid, mask in zip(output_batch, masks):
+
+            # calculate the softmax and loss      
+            score = w * s.output() + b
+            loss = dynet.pickneglogsoftmax_batch(score, wid)
+
+            # mask the loss if at least one sentence is shorter
+            if mask[-1] != 1:
+                mask_expr = dynet.inputVector(mask)
+                mask_expr = dynet.reshape(mask_expr, (1,), args.minibatch_size)
+                loss = loss * mask_expr
+
+            losses.append(loss)
+
+            # update the state of the RNN        
+            embed_vector = dy.lookup_batch(self.tgt_lookup, wid)
+            s = s.add_input(embed_vector) 
+    
+        return dy.sum_batches(dy.esum(losses))
+
 
     def generate(self, src, sampled=False):
         embedding = self.embed_seq(src)
@@ -149,11 +206,41 @@ class Seq2SeqBasic(Seq2SeqTemplate):
         completed_beams.sort(key=lambda x:x["err"])
         return [beam["out"] for beam in completed_beams]
 
+
     def get_loss(self, input, output):
         dynet.renew_cg()
         embedded = self.embed_seq(input)
         encoded = self.encode_seq(embedded)[-1]
         return self.decode(encoded, output)
+
+
+    def get_batch_loss(self, input_batch, output_batch):
+        
+        #MASK SENTENCES
+        wids = [] # Dimension: maxSentLength * minibatch_size
+        wids_reversed = []
+        # List of lists to store whether an input is 
+        # present(1)/absent(0) for an example at a time step
+        masks = [] # Dimension: maxSentLength * minibatch_size
+
+        #No of words processed in this batch
+        tot_words = 0
+        maxSentLength = max([len(sent) for sent in input_batch])
+        sentLengths =[len(sent) for sent in input_batch]
+
+        for i in range(maxSentLength):
+            wids.append([(self.src_vocab[sent[i]] if len(sent)>i else self.src_vocab.END_TOK) for sent in input_batch])
+            wids_reversed.append([(self.src_vocab[sent[len(sent)-i-1]] if len(sent)>i else self.src_vocab.START_TOK) for sent in input_batch])
+            mask = [(1 if len(sent)>i else 0) for sent in input_batch]
+            masks.append(mask)
+            tot_words += sum(mask)
+
+        embedded_batch = self.embed_batch_seq(wids)
+        embedded_batch_reverse = self.embed_batch_seq(wids_reversed)
+        encoded_batch = self.encode_batch_seq(embedded_batch, embedded_batch_reverse, sentLengths)[-1]
+
+        return self.decode_batch(encoded_batch, output_batch)
+
 
     def get_perplexity(self, input, output, beam_n=5):
         dynet.renew_cg()
@@ -328,6 +415,83 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
                                             and len(beam["out"]) <= 5*len(src_seq)]
         completed_beams.sort(key=lambda x:x["err"])
         return [beam["out"] for beam in completed_beams]
+
+
+    def encode_batch_seq(self, src_seq, src_seq_rev, sentLengths):
+
+        # [src[i] for src in src_seq for i in range(len(src_seq[0]))]
+        fwd_vectors = [self.enc_fwd_lstm.initial_state().transduce(src) for src in src_seq]
+        bwd_vectors = [self.enc_bwd_lstm.initial_state().transduce(src_rev) for src_rev in src_seq_rev]
+        
+        bwd_vectors_T = dynet.transpose(bwd_vectors)
+
+        i = 0
+        for vec, sentLen in izip(bwd_vectors_T,range(len(sentLengths))):
+            sent_vec = vec[:sentLen][::-1]
+            vec[:sentLen] = sent_vec
+            bwd_vectors_T[i] = vec
+            i += 1
+
+        bwd_vectors = dynet.transpose(bwd_vectors_T)
+
+        vectors = [dynet.concatenate(list(p)) for p in zip(fwd_vectors, bwd_vectors)]
+        return vectors
+
+
+    def decode_batch(self, encoding, output_batch):
+
+        w = dynet.parameter(self.decoder_w)
+        b = dynet.parameter(self.decoder_b)
+        s = self.dec_lstm.initial_state().add_input(encoding)
+        losses = []
+
+        for wid, mask in zip(output_batch, masks):
+
+            # calculate the softmax and loss      
+            score = w * s.output() + b
+            loss = dynet.pickneglogsoftmax_batch(score, wid)
+
+            # mask the loss if at least one sentence is shorter
+            if mask[-1] != 1:
+                mask_expr = dynet.inputVector(mask)
+                mask_expr = dynet.reshape(mask_expr, (1,), args.minibatch_size)
+                loss = loss * mask_expr
+
+            losses.append(loss)
+
+            # update the state of the RNN        
+            embed_vector = dy.lookup_batch(self.tgt_lookup, wid)
+            s = s.add_input(embed_vector) 
+    
+        return dy.sum_batches(dy.esum(losses))
+
+
+    def get_batch_loss(self, input_batch, output_batch):
+        
+        #MASK SENTENCES
+        wids = [] # Dimension: maxSentLength * minibatch_size
+        wids_reversed = []
+        # List of lists to store whether an input is 
+        # present(1)/absent(0) for an example at a time step
+        masks = [] # Dimension: maxSentLength * minibatch_size
+
+        #No of words processed in this batch
+        tot_words = 0
+        maxSentLength = max([len(sent) for sent in input_batch])
+        sentLengths =[len(sent) for sent in input_batch]
+
+        for i in range(maxSentLength):
+            wids.append([(self.src_vocab[sent[i]] if len(sent)>i else self.src_vocab.END_TOK) for sent in input_batch])
+            wids_reversed.append([(self.src_vocab[sent[len(sent)-i-1]] if len(sent)>i else self.src_vocab.START_TOK) for sent in input_batch])
+            mask = [(1 if len(sent)>i else 0) for sent in input_batch]
+            masks.append(mask)
+            tot_words += sum(mask)
+
+        embedded_batch = self.embed_batch_seq(wids)
+        embedded_batch_reverse = self.embed_batch_seq(wids_reversed)
+        encoded_batch = self.encode_batch_seq(embedded_batch, embedded_batch_reverse, sentLengths)[-1]
+
+        return self.decode_batch(encoded_batch, output_batch)
 
     def get_loss(self, input, output):
         dynet.renew_cg()
