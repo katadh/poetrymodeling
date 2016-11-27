@@ -31,7 +31,7 @@ class BaselineRNNLM(RNNLanguageModel):
         self.m = model
         self.vocab = vocab
         self.args = args
-
+        
         self.rnn = args.rnn(args.layers, args.input_dim, args.hidden_dim, model)
 
         self.lookup = model.add_lookup_parameters((vocab.size, args.input_dim))
@@ -53,6 +53,50 @@ class BaselineRNNLM(RNNLanguageModel):
             y_t = state.output()
             r_t = bias + (R * y_t)
             err = dynet.pickneglogsoftmax(r_t, int(nw))
+            errs.append(err)
+        nerr = dynet.esum(errs)
+        return nerr
+
+    def BuildLMGraph_batch(self, sents, sent_args=None):
+        dynet.renew_cg()
+        init_state = self.rnn.initial_state()
+
+        #MASK SENTENCES
+        wids = [] # Dimension: maxSentLength * minibatch_size
+
+        # List of lists to store whether an input is 
+        # present(1)/absent(0) for an example at a time step
+        masks = [] # Dimension: maxSentLength * minibatch_size
+
+        #No of words processed in this batch
+        tot_words = 0
+        maxSentLength = max([len(sent) for sent in sents])
+        sentLengths =[len(sent) for sent in sents]
+
+        for i in range(maxSentLength):
+            wids.append([(self.vocab[sent[i]] if len(sent)>i else self.vocab.END_TOK) for sent in sents])
+            mask = [(1 if len(sent)>i else 0) for sent in sents]
+            masks.append(mask)
+            tot_words += sum(mask)
+
+        R = dynet.parameter(self.R)
+        bias = dynet.parameter(self.bias)
+        errs = [] # will hold expressions
+        state = init_state
+
+        for (mask, curr_words,next_words) in zip(masks,wids,wids[1:]):
+            x_t = self.lookup_batch(self.lookup, curr_words) 
+            state = state.add_input(x_t)
+            y_t = state.output()
+            r_t = bias + (R * y_t)
+            err = dynet.pickneglogsoftmax_batch(r_t, next_words)
+
+            # mask the loss if at least one sentence is shorter
+            if 0 in mask:
+                mask_expr = dynet.inputVector(mask)
+                mask_expr = dynet.reshape(mask_expr, (1,), args.minibatch_size)
+                err = err * mask_expr
+
             errs.append(err)
         nerr = dynet.esum(errs)
         return nerr
@@ -132,6 +176,50 @@ class BasicJointRNNLM(RNNLanguageModel):
         nerr = dynet.esum(errs)
         return nerr
 
+    def BuildLMGraph_batch(self, sents, sent_args=None):
+        dynet.renew_cg()
+        init_state = self.rnn.initial_state()
+
+        #MASK SENTENCES
+        wids = [] # Dimension: maxSentLength * minibatch_size
+
+        # List of lists to store whether an input is 
+        # present(1)/absent(0) for an example at a time step
+        masks = [] # Dimension: maxSentLength * minibatch_size
+
+        #No of words processed in this batch
+        tot_words = 0
+        maxSentLength = max([len(sent) for sent in sents])
+        sentLengths =[len(sent) for sent in sents]
+
+        for i in range(maxSentLength):
+            wids.append([(self.vocab[sent[i]] if len(sent)>i else self.vocab.END_TOK) for sent in sents])
+            mask = [(1 if len(sent)>i else 0) for sent in sents]
+            masks.append(mask)
+            tot_words += sum(mask)
+
+        R = dynet.parameter(self.R)
+        bias = dynet.parameter(self.bias)
+        errs = [] # will hold expressions
+        state = init_state
+
+        for (mask,curr_words,next_words) in zip(masks,wids,wids[1:]):
+            x_t = self.lookup_batch(self.lookup, curr_words) 
+            state = state.add_input(x_t)
+            y_t = state.output()
+            r_t = bias + (R * y_t)
+            err = dynet.pickneglogsoftmax_batch(r_t, next_words)
+
+            # mask the loss if at least one sentence is shorter
+            if 0 in mask:
+                mask_expr = dynet.inputVector(mask)
+                mask_expr = dynet.reshape(mask_expr, (1,), args.minibatch_size)
+                err = err * mask_expr
+         
+            errs.append(err)
+        nerr = dynet.esum(errs)
+        return nerr
+
     def sample(self, first=0, stop=-1, nchars=100):
         first = self.vocab[first].i
         stop = self.vocab[stop].i
@@ -206,6 +294,50 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
             y_t = state.output()
             r_t = bias + (R * y_t)
             err = dynet.pickneglogsoftmax(r_t, int(nw.i))
+            errs.append(err)
+        nerr = dynet.esum(errs)
+        return nerr
+
+    def BuildLMGraph_batch(self, sents, sent_args=None):
+        dynet.renew_cg()
+        init_state = self.rnn.initial_state()
+
+        #MASK SENTENCES
+        wids = [] # Dimension: maxSentLength * minibatch_size
+
+        # List of lists to store whether an input is 
+        # present(1)/absent(0) for an example at a time step
+        masks = [] # Dimension: maxSentLength * minibatch_size
+
+        #No of words processed in this batch
+        tot_words = 0
+        maxSentLength = max([len(sent) for sent in sents])
+        sentLengths =[len(sent) for sent in sents]
+
+        for i in range(maxSentLength):
+            wids.append([(self.vocab[sent[i]] if len(sent)>i else self.vocab.END_TOK) for sent in sents])
+            mask = [(1 if len(sent)>i else 0) for sent in sents]
+            masks.append(mask)
+            tot_words += sum(mask)
+
+        R = dynet.parameter(self.R)
+        bias = dynet.parameter(self.bias)
+        errs = [] # will hold expressions
+        state = init_state
+
+        for (mask,curr_words,next_words) in zip(masks,wids,wids[1:]):
+            x_t = self.lookup_batch(self.lookup, curr_words) 
+            state = state.add_input(x_t)
+            y_t = state.output()
+            r_t = bias + (R * y_t)
+            err = dynet.pickneglogsoftmax_batch(r_t, next_words)
+
+            # mask the loss if at least one sentence is shorter
+            if 0 in mask:
+                mask_expr = dynet.inputVector(mask)
+                mask_expr = dynet.reshape(mask_expr, (1,), args.minibatch_size)
+                err = err * mask_expr
+
             errs.append(err)
         nerr = dynet.esum(errs)
         return nerr

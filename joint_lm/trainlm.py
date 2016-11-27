@@ -49,6 +49,7 @@ parser.add_argument("--s2s_type", default="basic")
 
 ## model-specific parameters
 parser.add_argument("--sample_count", default=10, type=int)
+parser.add_argument("--minibatch_size", default=100, type=int)
 
 args = parser.parse_args()
 print "ARGS:", args
@@ -96,14 +97,22 @@ if args.output:
 special_chars = {tok.s for tok in vocab.tokens if tok.s in {BEGIN_TOKEN,}}
 perplexity_denom = lambda x:len([i for i in x if i not in special_chars])
 
+
+# Store starting index of each minibatch
+train_order = [x*args.minibatch_size for x in range(len(train_data)/args.minibatch_size + 1)]
+valid_order = [x*args.minibatch_size for x in range(len(valid_data)/args.minibatch_size + 1)]
+
 char_count = sent_count = cum_loss = cum_perplexity = 0.0
 _start = time.time()
 for ITER in range(args.epochs):
     lm.epoch = ITER
     random.shuffle(train_data)
 
-    for i,sent in enumerate(train_data):
-        sample_num = 1+i+(len(train_data)*ITER)
+    for i,sid in enumerate(train_order):
+
+        sent = train_data[sid]
+        batched_sent = src[sid : sid + args.minibatch_size]
+        sample_num = 1+sid+(len(train_data)*ITER)
 
         if sample_num % args.log_train_every_n == 0:
             print ITER, sample_num, " ",
@@ -121,7 +130,8 @@ for ITER in range(args.epochs):
         if sample_num % args.log_valid_every_n == 0:
             v_char_count = v_sent_count = v_cum_loss = v_cum_perplexity = 0.0
             v_start = time.time()
-            for v_sent in valid_data:
+            for vid in valid_order:
+                sent = valid_data[vid]
                 v_isent = [vocab[w].i for w in v_sent]
                 v_loss = lm.BuildLMGraph(v_isent, sent_args={"test":True,
                                                              "special_chars":special_chars})
@@ -143,8 +153,9 @@ for ITER in range(args.epochs):
             print "\n"            
 	 # end of validation logging
 
-        isent = [vocab[w].i for w in sent]
-        loss = lm.BuildLMGraph(isent, sent_args={"special_chars":special_chars})
+        # isent = [vocab[w].i for w in sent]
+        # loss = lm.BuildLMGraph(isent, sent_args={"special_chars":special_chars})
+        loss = lm.BuildLMGraph_batch(batched_sent, sent_args={"special_chars":special_chars})
         cum_loss += loss.value()
         cum_perplexity += math.exp(loss.value()/perplexity_denom(sent))
         char_count += perplexity_denom(sent)

@@ -132,7 +132,7 @@ class Seq2SeqBasic(Seq2SeqTemplate):
             loss = dynet.pickneglogsoftmax_batch(score, wid)
 
             # mask the loss if at least one sentence is shorter
-            if mask[-1] != 1:
+            if 0 in mask:
                 mask_expr = dynet.inputVector(mask)
                 mask_expr = dynet.reshape(mask_expr, (1,), args.minibatch_size)
                 loss = loss * mask_expr
@@ -452,7 +452,7 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
             loss = dynet.pickneglogsoftmax_batch(score, wid)
 
             # mask the loss if at least one sentence is shorter
-            if mask[-1] != 1:
+            if 0 in mask:
                 mask_expr = dynet.inputVector(mask)
                 mask_expr = dynet.reshape(mask_expr, (1,), args.minibatch_size)
                 loss = loss * mask_expr
