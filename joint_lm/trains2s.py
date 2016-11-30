@@ -16,6 +16,7 @@ parser.add_argument("--dynet-mem")
 ## locations of data
 parser.add_argument("--train")
 parser.add_argument("--valid")
+parser.add_argument("--test")
 
 ## alternatively, load one dataset and split it
 parser.add_argument("--percent_valid", default=1000, type=float)
@@ -43,6 +44,7 @@ parser.add_argument("--model", default="basic")
 parser.add_argument("--reader_mode")
 parser.add_argument("--load")
 parser.add_argument("--save")
+parser.add_argument("--eval", type=bool)
 
 ## model-specific parameters
 parser.add_argument("--beam_size", default=3, type=int)
@@ -64,7 +66,7 @@ sgd = dynet.SimpleSGDTrainer(model)
 
 S2SModel = seq2seq.get_s2s(args.model)
 if args.load:
-    print "loading..."
+    print "Loading model..."
     s2s = S2SModel.load(model, args.load)
     src_vocab = s2s.src_vocab
     tgt_vocab = s2s.tgt_vocab
@@ -82,6 +84,19 @@ else:
     print "making model..."
     s2s = S2SModel(model, src_vocab, tgt_vocab, args)
     print "...done."
+
+
+# evaluate existing model
+if args.eval:
+    print "Evaluating model..."
+    print args.test
+    test_data = list(util.get_reader(args.reader_mode)(args.test, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
+    if args.test:
+        s2s.evaluate(test_data)
+        sys.exit("...done.")
+    else:
+        raise Exception("Test file path argument missing")
+
 
 # load corpus
 
