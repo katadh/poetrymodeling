@@ -1,11 +1,13 @@
+from __future__ import division
 import dynet
 import random
 import math
 import os
 import util
 import numpy as np
+import distance
 import cPickle as pickle
-from nltk.align.bleu import BLEU
+import nltk.translate.bleu_score as BLEU
 
 class Seq2SeqTemplate(object):
     name = "template"
@@ -512,3 +514,28 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
         output_strs = [tok.s for tok in output]
         ans = max([BLEU.compute(input_str, output_strs, [1.0]) for input_str in input_strs])
         return ans
+
+    def evaluate(self, test_data):
+   		count = 0
+		total_distance = 0
+		perWordError = 0
+		truePhonemeLength = 0
+
+		for src, target in test_data:
+			dynet.renew_cg()
+			symbols = self.generate(src)
+			symbols = [symbol.s for symbol in symbols if symbol!=self.tgt_vocab.END_TOK]
+			target = [t for t in target if t!=self.tgt_vocab.END_TOK.s]
+			# symbols = [symbol.strip(string.digits) for symbol in symbols]
+			# target = [t.strip(string.digits) for t in target]
+			# print "Generated: ", symbols, "True: " , target
+			dist = distance.levenshtein(symbols, target)
+			# print "Levenshtein: ", dist
+			total_distance += dist
+			truePhonemeLength += len(target)
+			if dist!=0:
+				perWordError += 1
+			count = count + 1
+
+		print "Phoneme error rate: ", total_distance/truePhonemeLength
+		print "Average per-word error: ", perWordError/count
