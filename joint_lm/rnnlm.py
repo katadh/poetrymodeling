@@ -206,11 +206,18 @@ class BasicJointRNNLM(RNNLanguageModel):
         bias = dynet.parameter(self.bias)
         losses = [] # will hold losses
         state = init_state
+        spellings = [] # list of lists containing spellings of the word
 
         for (mask, curr_words, next_words) in zip(masks,wids,wids[1:]):
-            # print "Current words: ", curr_words
-            # print "Next words: ", next_words
-            x_t = dynet.lookup_batch(self.lookup, curr_words) 
+            for cw in curr_words:
+                spellings.append([self.s2s.src_vocab[letter] for letter in cw.s.upper()])
+            
+            embedded_spellings = [self.s2s.embed_seq(spelling) for spelling in spellings]
+            pron_vectors = [self.s2s.encode_seq(embedded_spelling)[-1] for embedded_spelling in embedded_spellings]
+            fpv = [dynet.nobackprop(pron_vector) for pron_vector in pron_vectors]
+
+            curr_words_lookup = dynet.lookup_batch(self.lookup, curr_words) 
+            x_t = dynet.concatenate([curr_words_lookup,fpv])
             state = state.add_input(x_t)
             y_t = state.output()
             r_t = bias + (R * y_t)
@@ -225,6 +232,9 @@ class BasicJointRNNLM(RNNLanguageModel):
 
         netloss = dynet.sum_batches(dynet.esum(losses))
         return netloss
+
+
+
 
     def sample(self, first=0, stop=-1, nchars=100):
         first = self.vocab[first].i
