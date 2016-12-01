@@ -37,8 +37,8 @@ parser.add_argument("--rnn", default="lstm")
 parser.add_argument("--epochs", default=10, type=int)
 parser.add_argument("--learning_rate", default=1.0, type=float)
 #parser.add_argument("--max_corpus_size", default=100000, type=int)
-parser.add_argument("--log_train_every_n", default=100, type=int)
-parser.add_argument("--log_valid_every_n", default=5000, type=int)
+parser.add_argument("--log_train_every_n", default=5, type=int)
+parser.add_argument("--log_valid_every_n", default=10, type=int)
 parser.add_argument("--output")
 parser.add_argument('--ignore_parens_perplexity', action='store_true')
 
@@ -96,7 +96,7 @@ if args.output:
 
 special_chars = {tok.s for tok in vocab.tokens if tok.s in {BEGIN_TOKEN,}}
 perplexity_denom = lambda x:len([i for i in x if i not in special_chars])
-
+perplexity_denom_batch = lambda batch: sum([perplexity_denom(sent) for sent in batch])
 
 # Store starting index of each minibatch
 train_order = [x*args.minibatch_size for x in range(len(train_data)/args.minibatch_size + 1)]
@@ -111,15 +111,18 @@ for ITER in range(args.epochs):
     for i,sid in enumerate(train_order):
 
         sent = train_data[sid]
-        batched_sent = src[sid : sid + args.minibatch_size]
-        sample_num = 1+sid+(len(train_data)*ITER)
+        batched_sent = train_data[sid : sid + args.minibatch_size]
+        # print "Batch of sentences: ", batched_sent
+
+        # sample_num = 1+i+(len(train_data)*ITER)
+        sample_num = 1 + i
 
         if sample_num % args.log_train_every_n == 0:
             print ITER, sample_num, " ",
             sgd.status()
-            print "L:", cum_loss / char_count,
-            print "P:", cum_perplexity / sent_count,
-            print "T:", (time.time() - _start),
+            print "Loss:", cum_loss / char_count,
+            print "Perplexity:", cum_perplexity / sent_count,
+            print "Time elapsed:", (time.time() - _start),
             _start = time.time()
             sample = lm.sample(first=BEGIN_TOKEN,stop=END_TOKEN,nchars=1000)
             if sample: print vocab.pp(sample, ' '),
@@ -131,14 +134,15 @@ for ITER in range(args.epochs):
             v_char_count = v_sent_count = v_cum_loss = v_cum_perplexity = 0.0
             v_start = time.time()
             for vid in valid_order:
-                sent = valid_data[vid]
-                v_isent = [vocab[w].i for w in v_sent]
-                v_loss = lm.BuildLMGraph(v_isent, sent_args={"test":True,
+                # v_sent = valid_data[vid]
+                v_batched_sent = valid_data[vid : vid + args.minibatch_size]
+                # v_isent = [vocab[w].i for w in v_sent]
+                v_loss = lm.BuildLMGraph_batch(v_batched_sent, sent_args={"test":True,
                                                              "special_chars":special_chars})
                 v_cum_loss += v_loss.scalar_value()
-                v_cum_perplexity += math.exp(v_loss.scalar_value()/perplexity_denom(v_sent))
-                v_char_count += perplexity_denom(v_sent)
-                v_sent_count += 1
+                v_cum_perplexity += math.exp(v_loss.scalar_value()/perplexity_denom_batch(v_batched_sent))
+                v_char_count += perplexity_denom_batch(v_batched_sent)
+                v_sent_count += args.minibatch_size
             print "[Validation "+str(sample_num) + "]\t" + \
                   "Loss: "+str(v_cum_loss / v_char_count) + "\t" + \
                   "Perplexity: "+str(v_cum_perplexity / v_sent_count) + "\t" + \
@@ -156,10 +160,10 @@ for ITER in range(args.epochs):
         # isent = [vocab[w].i for w in sent]
         # loss = lm.BuildLMGraph(isent, sent_args={"special_chars":special_chars})
         loss = lm.BuildLMGraph_batch(batched_sent, sent_args={"special_chars":special_chars})
-        cum_loss += loss.value()
-        cum_perplexity += math.exp(loss.value()/perplexity_denom(sent))
-        char_count += perplexity_denom(sent)
-        sent_count += 1
+        cum_loss += loss.scalar_value()
+        cum_perplexity += math.exp(loss.value()/perplexity_denom_batch(batched_sent))
+        char_count += perplexity_denom_batch(batched_sent)
+        sent_count += args.minibatch_size
 
         loss.backward()
         sgd.update(args.learning_rate)
@@ -168,16 +172,18 @@ for ITER in range(args.epochs):
     # end of iteration
 # end of training loop
 
+test_order = [x*args.minibatch_size for x in range(len(test_data)/args.minibatch_size + 1)]
 t_char_count = t_sent_count = t_cum_loss = t_cum_perplexity = 0.0
 t_start = time.time()
-for t_sent in test_data:
-    t_isent = [vocab[w].i for w in t_sent]
-    t_loss = lm.BuildLMGraph(t_isent, sent_args={"test":True, 
+for tid in test_order:
+    # t_isent = [vocab[w].i for w in t_sent]
+    t_batched_sent = test_data[tid : tid + args.minibatch_size]
+    t_loss = lm.BuildLMGraph_batch(t_batched_sent, sent_args={"test":True, 
                                                  "special_chars":special_chars})
     t_cum_loss += t_loss.scalar_value()
-    t_cum_perplexity += math.exp(t_loss.scalar_value()/perplexity_denom(t_sent))
-    t_char_count += perplexity_denom(t_sent)
-    t_sent_count += 1
+    t_cum_perplexity += math.exp(t_loss.scalar_value()/perplexity_denom_batch(t_batched_sent))
+    t_char_count += perplexity_denom_batch(t_batched_sent)
+    t_sent_count += args.minibatch_size
 #print "[Test]\t" + \
 #      "Loss: "+str(t_cum_loss / t_char_count) + "\t" + \
 #      "Perplexity: "+str(t_cum_perplexity / t_sent_count) + "\t" + \

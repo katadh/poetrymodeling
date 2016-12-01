@@ -3,6 +3,7 @@ import random
 import util
 import math
 import seq2seq
+
 ###########################################################################
 class RNNLanguageModel(object):
     name = "template"
@@ -60,7 +61,7 @@ class BaselineRNNLM(RNNLanguageModel):
     def BuildLMGraph_batch(self, sents, sent_args=None):
         dynet.renew_cg()
         init_state = self.rnn.initial_state()
-
+        mb_size = len(sents)
         #MASK SENTENCES
         wids = [] # Dimension: maxSentLength * minibatch_size
 
@@ -73,33 +74,37 @@ class BaselineRNNLM(RNNLanguageModel):
         maxSentLength = max([len(sent) for sent in sents])
         sentLengths =[len(sent) for sent in sents]
 
-        for i in range(maxSentLength):
-            wids.append([(self.vocab[sent[i]] if len(sent)>i else self.vocab.END_TOK) for sent in sents])
-            mask = [(1 if len(sent)>i else 0) for sent in sents]
+        for k in range(maxSentLength):
+            wids.append([(self.vocab.s2t[sent[k]].i if len(sent)>k else self.vocab.END_TOK.i) for sent in sents])
+            mask = [(1 if len(sent)>k else 0) for sent in sents]
             masks.append(mask)
             tot_words += sum(mask)
 
+        # print "WIDS:", wids
+
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
-        errs = [] # will hold expressions
+        losses = [] # will hold losses
         state = init_state
 
-        for (mask, curr_words,next_words) in zip(masks,wids,wids[1:]):
-            x_t = self.lookup_batch(self.lookup, curr_words) 
+        for (mask, curr_words, next_words) in zip(masks,wids,wids[1:]):
+            # print "Current words: ", curr_words
+            # print "Next words: ", next_words
+            x_t = dynet.lookup_batch(self.lookup, curr_words) 
             state = state.add_input(x_t)
             y_t = state.output()
             r_t = bias + (R * y_t)
-            err = dynet.pickneglogsoftmax_batch(r_t, next_words)
-
+            loss = dynet.pickneglogsoftmax_batch(r_t, next_words)
+            # loss is a list of losses
             # mask the loss if at least one sentence is shorter
             if 0 in mask:
                 mask_expr = dynet.inputVector(mask)
-                mask_expr = dynet.reshape(mask_expr, (1,), args.minibatch_size)
-                err = err * mask_expr
+                mask_expr = dynet.reshape(mask_expr, (1,), mb_size)
+                loss = loss * mask_expr
+            losses.append(loss)
 
-            errs.append(err)
-        nerr = dynet.esum(errs)
-        return nerr
+        netloss = dynet.sum_batches(dynet.esum(losses))
+        return netloss
 
     def sample(self, first=0, stop=-1, nchars=100):
         first = self.vocab[first].i
@@ -179,7 +184,7 @@ class BasicJointRNNLM(RNNLanguageModel):
     def BuildLMGraph_batch(self, sents, sent_args=None):
         dynet.renew_cg()
         init_state = self.rnn.initial_state()
-
+        mb_size = len(sents)
         #MASK SENTENCES
         wids = [] # Dimension: maxSentLength * minibatch_size
 
@@ -190,35 +195,36 @@ class BasicJointRNNLM(RNNLanguageModel):
         #No of words processed in this batch
         tot_words = 0
         maxSentLength = max([len(sent) for sent in sents])
-        sentLengths =[len(sent) for sent in sents]
 
-        for i in range(maxSentLength):
-            wids.append([(self.vocab[sent[i]] if len(sent)>i else self.vocab.END_TOK) for sent in sents])
-            mask = [(1 if len(sent)>i else 0) for sent in sents]
+        for k in range(maxSentLength):
+            wids.append([(self.vocab.s2t[sent[k]].i if len(sent)>k else self.vocab.END_TOK.i) for sent in sents])
+            mask = [(1 if len(sent)>k else 0) for sent in sents]
             masks.append(mask)
             tot_words += sum(mask)
 
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
-        errs = [] # will hold expressions
+        losses = [] # will hold losses
         state = init_state
 
-        for (mask,curr_words,next_words) in zip(masks,wids,wids[1:]):
-            x_t = self.lookup_batch(self.lookup, curr_words) 
+        for (mask, curr_words, next_words) in zip(masks,wids,wids[1:]):
+            # print "Current words: ", curr_words
+            # print "Next words: ", next_words
+            x_t = dynet.lookup_batch(self.lookup, curr_words) 
             state = state.add_input(x_t)
             y_t = state.output()
             r_t = bias + (R * y_t)
-            err = dynet.pickneglogsoftmax_batch(r_t, next_words)
-
+            loss = dynet.pickneglogsoftmax_batch(r_t, next_words)
+            # loss is a list of losses
             # mask the loss if at least one sentence is shorter
             if 0 in mask:
                 mask_expr = dynet.inputVector(mask)
-                mask_expr = dynet.reshape(mask_expr, (1,), args.minibatch_size)
-                err = err * mask_expr
-         
-            errs.append(err)
-        nerr = dynet.esum(errs)
-        return nerr
+                mask_expr = dynet.reshape(mask_expr, (1,), mb_size)
+                loss = loss * mask_expr
+            losses.append(loss)
+
+        netloss = dynet.sum_batches(dynet.esum(losses))
+        return netloss
 
     def sample(self, first=0, stop=-1, nchars=100):
         first = self.vocab[first].i
@@ -301,7 +307,7 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
     def BuildLMGraph_batch(self, sents, sent_args=None):
         dynet.renew_cg()
         init_state = self.rnn.initial_state()
-
+        mb_size = len(sents)
         #MASK SENTENCES
         wids = [] # Dimension: maxSentLength * minibatch_size
 
@@ -314,33 +320,35 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
         maxSentLength = max([len(sent) for sent in sents])
         sentLengths =[len(sent) for sent in sents]
 
-        for i in range(maxSentLength):
-            wids.append([(self.vocab[sent[i]] if len(sent)>i else self.vocab.END_TOK) for sent in sents])
-            mask = [(1 if len(sent)>i else 0) for sent in sents]
+        for k in range(maxSentLength):
+            wids.append([(self.vocab.s2t[sent[k]].i if len(sent)>k else self.vocab.END_TOK.i) for sent in sents])
+            mask = [(1 if len(sent)>k else 0) for sent in sents]
             masks.append(mask)
             tot_words += sum(mask)
 
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
-        errs = [] # will hold expressions
+        losses = [] # will hold losses
         state = init_state
 
-        for (mask,curr_words,next_words) in zip(masks,wids,wids[1:]):
-            x_t = self.lookup_batch(self.lookup, curr_words) 
+        for (mask, curr_words, next_words) in zip(masks,wids,wids[1:]):
+            # print "Current words: ", curr_words
+            # print "Next words: ", next_words
+            x_t = dynet.lookup_batch(self.lookup, curr_words) 
             state = state.add_input(x_t)
             y_t = state.output()
             r_t = bias + (R * y_t)
-            err = dynet.pickneglogsoftmax_batch(r_t, next_words)
-
+            loss = dynet.pickneglogsoftmax_batch(r_t, next_words)
+            # loss is a list of losses
             # mask the loss if at least one sentence is shorter
             if 0 in mask:
                 mask_expr = dynet.inputVector(mask)
-                mask_expr = dynet.reshape(mask_expr, (1,), args.minibatch_size)
-                err = err * mask_expr
+                mask_expr = dynet.reshape(mask_expr, (1,), mb_size)
+                loss = loss * mask_expr
+            losses.append(loss)
 
-            errs.append(err)
-        nerr = dynet.esum(errs)
-        return nerr
+        netloss = dynet.sum_batches(dynet.esum(losses))
+        return netloss
 
     def sample(self, first=0, stop=-1, nchars=100):
         first = self.vocab[first].i
