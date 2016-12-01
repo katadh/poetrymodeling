@@ -254,7 +254,7 @@ class OHHLACorpusReader(CorpusReaderTemplate):
                         yield (inp_toks, outp_toks)
 
 class OEDILFCorpusReader(CorpusReaderTemplate):
-    names = {"oedilf"}
+    names = {"oedilf", "oedilf_rhymes"}
     def __init__(self, fname, begin=None, end=None, mode="oedilf"):
         self.fname = fname
         self.mode = mode
@@ -272,11 +272,20 @@ class OEDILFCorpusReader(CorpusReaderTemplate):
                 doc = f.read()
                 if self.mode == "oedilf":
                     toks = [self.begin]
-                    for line in doc.split("\n"):
+                    for i, line in enumerate(doc.split("\n")):
                         if not line: continue
                         line = ''.join([char for char in line.lower() if char in "qwertyuioplkjhgfdsazxcvbnm "])
                         
-                        line_toks =  ' '.join(tokenize(line)).split(" ") + ['<br>']
+                        line_toks =  ' '.join(tokenize(line)).split(" ") + ['<br'+str(i)+'>']
+                        toks += [tok for tok in line_toks if tok != '']
+                    yield toks + [self.end]
+                if self.mode == "oedilf_rhymes":
+                    toks = [self.begin]
+                    for i, line in enumerate(doc.split("\n")):
+                        if not line: continue
+                        line = ''.join([char for char in line.lower() if char in "qwertyuioplkjhgfdsazxcvbnm "])
+                        
+                        line_toks =  ' '.join(tokenize(line)).split(" ")[-1:] + ['<br'+str(i)+'>']
                         toks += [tok for tok in line_toks if tok != '']
                     yield toks + [self.end]
 
