@@ -147,7 +147,10 @@ class BasicJointRNNLM(RNNLanguageModel):
         self.vocab = vocab
         self.args = args
 
-        self.s2s = args.s2s
+		if args.s2s:
+			print "loading s2s..."
+			self.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
+			
         self.rnn = args.rnn(args.layers, self.s2s.args.hidden_dim*2 + args.input_dim, args.hidden_dim, model)
 
         self.lookup = model.add_lookup_parameters((vocab.size, args.input_dim))
@@ -281,7 +284,10 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
         self.vocab = vocab
         self.args = args
 
-        self.s2s = args.s2s
+		if args.s2s:
+			print "loading s2s..."
+			self.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
+			
         self.rnn = args.rnn(args.layers, self.s2s.args.hidden_dim*2, args.hidden_dim, model)
 
         self.R = model.add_parameters((vocab.size, args.hidden_dim))

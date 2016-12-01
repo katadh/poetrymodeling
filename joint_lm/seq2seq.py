@@ -266,29 +266,29 @@ class Seq2SeqBasic(Seq2SeqTemplate):
         return ans
 
     def evaluate(self, test_data):
-   		count = 0
-		total_distance = 0
-		perWordError = 0
-		truePhonemeLength = 0
+        count = 0
+        total_distance = 0
+        perWordError = 0
+        truePhonemeLength = 0
 
-		for src, target in test_data:
-			dynet.renew_cg()
-			symbols = self.generate(src)
-			symbols = [symbol.s for symbol in symbols if symbol!=self.tgt_vocab.END_TOK]
-			target = [t for t in target if t!=self.tgt_vocab.END_TOK.s]
-			# symbols = [symbol.strip(string.digits) for symbol in symbols]
-			# target = [t.strip(string.digits) for t in target]
-			# print "Generated: ", symbols, "True: " , target
-			dist = distance.levenshtein(symbols, target)
-			# print "Levenshtein: ", dist
-			total_distance += dist
-			truePhonemeLength += len(target)
-			if dist!=0:
-				perWordError += 1
-			count = count + 1
+        for src, target in test_data:
+            dynet.renew_cg()
+            symbols = self.generate(src)
+            symbols = [symbol.s for symbol in symbols if symbol!=self.tgt_vocab.END_TOK]
+            target = [t for t in target if t!=self.tgt_vocab.END_TOK.s]
+            # symbols = [symbol.strip(string.digits) for symbol in symbols]
+            # target = [t.strip(string.digits) for t in target]
+            # print "Generated: ", symbols, "True: " , target
+            dist = distance.levenshtein(symbols, target)
+            # print "Levenshtein: ", dist
+            total_distance += dist
+            truePhonemeLength += len(target)
+            if dist!=0:
+                perWordError += 1
+            count = count + 1
 
-		print "Phoneme error rate: ", total_distance/truePhonemeLength
-		print "Average per-word error: ", perWordError/count   
+        print "Phoneme error rate: ", total_distance/truePhonemeLength
+        print "Average per-word error: ", perWordError/count   
 
 class Seq2SeqBiRNNAttn(Seq2SeqBasic):
     name="attention"
@@ -541,26 +541,209 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
         return ans
 
     def evaluate(self, test_data):
-   		count = 0
-		total_distance = 0
-		perWordError = 0
-		truePhonemeLength = 0
+        count = 0
+        total_distance = 0
+        perWordError = 0
+        truePhonemeLength = 0
 
-		for src, target in test_data:
-			dynet.renew_cg()
-			symbols = self.generate(src)
-			symbols = [symbol.s for symbol in symbols if symbol!=self.tgt_vocab.END_TOK]
-			target = [t for t in target if t!=self.tgt_vocab.END_TOK.s]
-			# symbols = [symbol.strip(string.digits) for symbol in symbols]
-			# target = [t.strip(string.digits) for t in target]
-			# print "Generated: ", symbols, "True: " , target
-			dist = distance.levenshtein(symbols, target)
-			# print "Levenshtein: ", dist
-			total_distance += dist
-			truePhonemeLength += len(target)
-			if dist!=0:
-				perWordError += 1
-			count = count + 1
+        for src, target in test_data:
+            dynet.renew_cg()
+            symbols = self.generate(src)
+            symbols = [symbol.s for symbol in symbols if symbol!=self.tgt_vocab.END_TOK]
+            target = [t for t in target if t!=self.tgt_vocab.END_TOK.s]
+            # symbols = [symbol.strip(string.digits) for symbol in symbols]
+            # target = [t.strip(string.digits) for t in target]
+            # print "Generated: ", symbols, "True: " , target
+            dist = distance.levenshtein(symbols, target)
+            # print "Levenshtein: ", dist
+            total_distance += dist
+            truePhonemeLength += len(target)
+            if dist!=0:
+                perWordError += 1
+            count = count + 1
 
-		print "Phoneme error rate: ", total_distance/truePhonemeLength
-		print "Average per-word error: ", perWordError/count
+        print "Phoneme error rate: ", total_distance/truePhonemeLength
+        print "Average per-word error: ", perWordError/count
+        
+class Seq2SeqBiRNNJointAttn(Seq2SeqBiRNNAttn):
+    name="joint_attention"
+    def __init__(self, model, src_vocab, tgt_vocab, args):
+        self.m = model
+        self.src_vocab = src_vocab
+        self.tgt_vocab = tgt_vocab
+        self.args = args
+        
+        if args.pronouncer:
+            print "loading pronouncer..."
+            self.pronouncer = seq2seq.get_s2s(args.pronouncer_type).load(model, args.pronouncer)
+        
+        # Bidirectional Encoder LSTM
+        print "Adding Forward encoder LSTM parameters"
+        self.enc_fwd_lstm = dynet.LSTMBuilder(args.layers, args.input_dim, args.hidden_dim, model)
+        print "Adding Backward encoder LSTM parameters"
+        self.enc_bwd_lstm = dynet.LSTMBuilder(args.layers, args.input_dim, args.hidden_dim, model)
+
+        #Decoder LSTM
+        print "Adding decoder LSTM parameters"
+        self.dec_lstm = dynet.LSTMBuilder(args.layers, (self.pronouncer.args.hidden_dim*2 + args.hidden_dim*2) + args.hidden_dim*2 + self.pronouncer.args.hidden_dim*2, args.hidden_dim, model)
+
+        #Decoder weight and bias
+        print "Adding Decoder weight"
+        self.decoder_w = model.add_parameters( (tgt_vocab.size, args.hidden_dim))
+        print "Adding Decoder bias"
+        self.decoder_b = model.add_parameters( (tgt_vocab.size,))
+
+        print "Adding lookup parameters"
+        #Lookup parameters
+        self.src_lookup = model.add_lookup_parameters( (src_vocab.size, args.input_dim))
+        self.tgt_lookup = model.add_lookup_parameters( (tgt_vocab.size, 2*args.hidden_dim))
+
+        #Attention parameters
+        print "Adding Attention Parameters"
+        self.attention_w1 = model.add_parameters( (args.attention_dim, args.hidden_dim*2 + self.pronouncer.args.hidden_dim*2))
+        self.attention_w2 = model.add_parameters( (args.attention_dim, args.hidden_dim*args.layers*2))
+        self.attention_v = model.add_parameters( (1, args.attention_dim))
+        
+    def embed_seq(self, seq):
+        words = [self.src_lookup[self.src_vocab[tok].i] for tok in seq] ##? self.src_vocab[tok].i ?
+        return words, seq
+
+    def encode_seq(self, src_seq):
+        src_seq, raw_words = src_seq
+
+        spellings = [[self.pronouncer.src_vocab[letter] for letter in self.src_vocab[tok].s.upper()] for tok in raw_words]
+        embedded_spellings = [self.pronouncer.embed_seq(spelling) for spelling in spellings]
+        pron_vectors = [self.pronouncer.encode_seq(embedded_spelling)[-1] for embedded_spelling in embedded_spellings]
+        fpvs = [dynet.nobackprop(pron_vector) for pron_vector in pron_vectors]
+        
+        src_seq_rev = list(reversed(src_seq))
+        fwd_vectors = self.enc_fwd_lstm.initial_state().transduce(src_seq)
+        bwd_vectors = self.enc_bwd_lstm.initial_state().transduce(src_seq_rev)
+        bwd_vectors = list(reversed(bwd_vectors))
+        vectors = [dynet.concatenate(list(p)) for p in zip(fwd_vectors, bwd_vectors, fpvs)]
+        return vectors
+
+    def decode(self, input_vectors, output):
+        tgt_toks = [self.tgt_vocab[tok] for tok in output]
+
+        w = dynet.parameter(self.decoder_w)
+        b = dynet.parameter(self.decoder_b)
+
+        s = self.dec_lstm.initial_state()
+        s = s.add_input(dynet.concatenate([
+                                            input_vectors[-1],
+                                            dynet.vecInput(self.args.hidden_dim*2),
+                                            dynet.vecInput(self.pronouncer.args.hidden_dim*2)
+                                          ]))
+        loss = []
+        for tok in tgt_toks:
+            out_vector = w * s.output() + b
+            probs = dynet.softmax(out_vector)
+            loss.append(-dynet.log(dynet.pick(probs, tok.i)))
+            
+            embed_vector = self.tgt_lookup[tok.i]
+            attn_vector = self.attend(input_vectors, s)
+            
+            spelling = [self.pronouncer.src_vocab[letter] for letter in tok.s.upper()]
+            embedded_spelling = self.pronouncer.embed_seq(spelling)
+            pron_vector = self.pronouncer.encode_seq(embedded_spelling)[-1]
+            fpv = dynet.nobackprop(pron_vector)
+            
+            inp = dynet.concatenate([embed_vector, attn_vector, fpv])
+            s = s.add_input(inp)
+
+        loss = dynet.esum(loss)
+        return loss
+
+    def generate(self, src_seq, sampled=False):
+        def sample(probs):
+            rnd = random.random()
+            for i, p in enumerate(probs):
+                rnd -= p
+                if rnd <= 0: break
+            return i
+
+        dynet.renew_cg()
+
+        embedded = self.embed_seq(src_seq)
+        input_vectors = self.encode_seq(embedded)
+
+        w = dynet.parameter(self.decoder_w)
+        b = dynet.parameter(self.decoder_b)
+
+        s = self.dec_lstm.initial_state()
+        s = s.add_input(dynet.concatenate([
+                                            input_vectors[-1],
+                                            dynet.vecInput(self.args.hidden_dim*2),
+                                            dynet.vecInput(self.pronouncer.args.hidden_dim*2)
+                                          ]))
+        out = []
+        for i in range(1+len(src_seq)*5):
+            out_vector = w * s.output() + b
+            probs = dynet.softmax(out_vector)
+            probs = probs.vec_value()
+            next_symbol = sample(probs) if sampled else max(enumerate(probs), key=lambda x:x[1])[0]
+            out.append(self.tgt_vocab[next_symbol])
+            if self.tgt_vocab[next_symbol] == self.tgt_vocab.END_TOK:
+                break
+            embed_vector = self.tgt_lookup[out[-1].i]
+            attn_vector = self.attend(input_vectors, s)
+            
+            spelling = [self.pronouncer.src_vocab[letter] for letter in out[-1].s.upper()]
+            embedded_spelling = self.pronouncer.embed_seq(spelling)
+            pron_vector = self.pronouncer.encode_seq(embedded_spelling)[-1]
+            fpv = dynet.nobackprop(pron_vector)
+            
+            inp = dynet.concatenate([embed_vector, attn_vector, fpv])
+            s = s.add_input(inp)
+        return out
+
+    def beam_search_generate(self, src_seq, beam_n=5):
+        dynet.renew_cg()
+
+        embedded = self.embed_seq(src_seq)
+        input_vectors = self.encode_seq(embedded)
+
+        w = dynet.parameter(self.decoder_w)
+        b = dynet.parameter(self.decoder_b)
+
+        s = self.dec_lstm.initial_state()
+        s = s.add_input(dynet.concatenate([
+                                            input_vectors[-1],
+                                            dynet.vecInput(self.args.hidden_dim*2),
+                                            dynet.vecInput(self.pronouncer.args.hidden_dim*2)
+                                          ]))
+        beams = [{"state":  s,
+                  "out":    [],
+                  "err":    0}]
+        completed_beams = []
+        while len(completed_beams) < beam_n:
+            potential_beams = []
+            for beam in beams:
+                if len(beam["out"]) > 0:
+                    attn_vector = self.attend(input_vectors, beam["state"])
+                    embed_vector = self.tgt_lookup[beam["out"][-1].i]
+                    spelling = [self.pronouncer.src_vocab[letter] for letter in beam["out"][-1].s.upper()]
+                    embedded_spelling = self.pronouncer.embed_seq(spelling)
+                    pron_vector = self.pronouncer.encode_seq(embedded_spelling)[-1]
+                    fpv = dynet.nobackprop(pron_vector)                    
+                    inp = dynet.concatenate([embed_vector, attn_vector, fpv])
+                    s = beam["state"].add_input(inp)
+
+                out_vector = w * s.output() + b
+                probs = dynet.softmax(out_vector)
+                probs = probs.vec_value()
+
+                for potential_next_i in range(len(probs)):
+                    potential_beams.append({"state":    s,
+                                            "out":      beam["out"]+[self.tgt_vocab[potential_next_i]],
+                                            "err":      beam["err"]-math.log(probs[potential_next_i])})
+
+            potential_beams.sort(key=lambda x:x["err"])
+            beams = potential_beams[:beam_n-len(completed_beams)]
+            completed_beams = completed_beams+[beam for beam in beams if beam["out"][-1] == self.tgt_vocab.END_TOK
+                                                                      or len(beam["out"]) > 5*len(src_seq)]
+            beams = [beam for beam in beams if beam["out"][-1] != self.tgt_vocab.END_TOK
+                                            and len(beam["out"]) <= 5*len(src_seq)]
+        completed_beams.sort(key=lambda x:x["err"])
+        return [beam["out"] for beam in completed_beams]

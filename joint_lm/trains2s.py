@@ -42,6 +42,8 @@ parser.add_argument("--output")
 ## choose what model to use
 parser.add_argument("--model", default="basic")
 parser.add_argument("--reader_mode")
+parser.add_argument("--pronouncer")
+parser.add_argument("--pronouncer_type", default="basic")
 parser.add_argument("--load")
 parser.add_argument("--save")
 parser.add_argument("--eval", type=bool)

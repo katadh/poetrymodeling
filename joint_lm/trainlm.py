@@ -71,10 +71,6 @@ vocab.add_unk(args.unk_thresh)
 model = dynet.Model()
 sgd = dynet.SimpleSGDTrainer(model)
 
-if args.s2s:
-    print "loading s2s..."
-    args.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
-
 RNNModel = rnnlm.get_lm(args.model)
 lm = RNNModel(model, vocab, args)
 
