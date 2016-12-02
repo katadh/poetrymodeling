@@ -30,7 +30,6 @@ parser.add_argument("--layers", default=1, type=int)
 parser.add_argument("--input_dim", default=10, type=int)
 parser.add_argument("--hidden_dim", default=50, type=int)
 parser.add_argument("--attention_dim", default=50, type=int)
-parser.add_argument("--rnn", default="lstm")
 
 ## experiment parameters
 parser.add_argument("--epochs", default=10, type=int)
@@ -53,10 +52,6 @@ parser.add_argument("--beam_size", default=3, type=int)
 
 args = parser.parse_args()
 print "ARGS:", args
-
-if args.rnn == "lstm": args.rnn = dynet.LSTMBuilder
-elif args.rnn == "gru": args.rnn = dynet.GRUBuilder
-else: args.rnn = dynet.SimpleRNNBuilder
 
 BEGIN_TOKEN = '<s>'
 END_TOKEN = '<e>'

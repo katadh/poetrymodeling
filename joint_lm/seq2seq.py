@@ -572,7 +572,7 @@ class Seq2SeqBiRNNJointAttn(Seq2SeqBiRNNAttn):
         self.src_vocab = src_vocab
         self.tgt_vocab = tgt_vocab
         self.args = args
-        
+                
         if args.pronouncer:
             print "loading pronouncer..."
             self.pronouncer = seq2seq.get_s2s(args.pronouncer_type).load(model, args.pronouncer)
