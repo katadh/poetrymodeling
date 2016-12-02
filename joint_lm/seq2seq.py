@@ -575,7 +575,7 @@ class Seq2SeqBiRNNJointAttn(Seq2SeqBiRNNAttn):
                 
         if args.pronouncer:
             print "loading pronouncer..."
-            self.pronouncer = seq2seq.get_s2s(args.pronouncer_type).load(model, args.pronouncer)
+            self.pronouncer = get_s2s(args.pronouncer_type).load(model, args.pronouncer)
         
         # Bidirectional Encoder LSTM
         print "Adding Forward encoder LSTM parameters"
