@@ -71,9 +71,9 @@ vocab.add_unk(args.unk_thresh)
 model = dynet.Model()
 sgd = dynet.SimpleSGDTrainer(model)
 
-if args.s2s:
-    print "loading s2s..."
-    args.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
+# if args.s2s:
+#     print "loading s2s..."
+#     args.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
 
 RNNModel = rnnlm.get_lm(args.model)
 lm = RNNModel(model, vocab, args)
@@ -154,7 +154,7 @@ try:
                 print "[Validation "+str(sample_num) + "]\t" + \
                       "Loss: "+str(v_cum_loss / v_char_count) + "\t" + \
                       "Perplexity: "+str(v_cum_perplexity / v_sent_count) + "\t" + \
-                      "Time: "+str(time.time() - v_start),
+                      "Time elapsed: "+str(time.time() - v_start),
                 if args.output:
                     print "(logging to", args.output + ")"
                     with open(args.output, "a") as outfile:
@@ -180,7 +180,7 @@ try:
         # end of iteration
     # end of training loop
 
-    test_order = [x*args.minibatch_size for x in range(len(test_data)/args.minibatch_size + 1)]
+    test_order = [x*args.minibatch_size for x in range(len(test_data)/args.minibatch_size + (1 if len(test_data)%args.minibatch_size != 0 else 0))]
     t_char_count = t_sent_count = t_cum_loss = t_cum_perplexity = 0.0
     t_start = time.time()
     for tid in test_order:
