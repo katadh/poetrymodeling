@@ -176,7 +176,6 @@ class BasicJointRNNLM(RNNLanguageModel):
         self.vocab = vocab
         self.args = args
 
-
         if args.s2s:
             print "loading s2s..."
             self.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
@@ -363,7 +362,6 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
         self.m = model
         self.vocab = vocab
         self.args = args
-
 
         if args.s2s:
             print "loading s2s..."

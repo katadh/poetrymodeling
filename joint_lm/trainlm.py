@@ -105,9 +105,12 @@ perplexity_denom = lambda x:len([i for i in x if i not in special_chars])
 perplexity_denom_batch = lambda batch: sum([perplexity_denom(sent) for sent in batch])
 
 # Store starting index of each minibatch
-train_order = [x*args.minibatch_size for x in range(len(train_data)/args.minibatch_size + (1 if len(valid_data)%args.minibatch_size != 0 else 0))]
-valid_order = [x*args.minibatch_size for x in range(len(valid_data)/args.minibatch_size + (1 if len(valid_data)%args.minibatch_size != 0 else 0))]
-
+if args.minibatch_size != 0:
+    train_order = [x*args.minibatch_size for x in range(len(train_data)/args.minibatch_size + (1 if len(valid_data)%args.minibatch_size != 0 else 0))]
+    valid_order = [x*args.minibatch_size for x in range(len(valid_data)/args.minibatch_size + (1 if len(valid_data)%args.minibatch_size != 0 else 0))]
+else:
+	train_order = range(len(train_data))
+	valid_order = range(len(valid_data))
 
 try:
     char_count = sent_count = cum_loss = cum_perplexity = 0.0
@@ -143,14 +146,22 @@ try:
                 v_start = time.time()
                 for vid in valid_order:
                     # v_sent = valid_data[vid]
-                    v_batched_sent = valid_data[vid : vid + args.minibatch_size]
-                    # v_isent = [vocab[w].i for w in v_sent]
-                    v_loss = lm.BuildLMGraph_batch(v_batched_sent, sent_args={"test":True,
+                    if args.minibatch_size != 0:
+                        v_batched_sent = valid_data[vid : vid + args.minibatch_size]
+                        v_loss = lm.BuildLMGraph_batch(v_batched_sent, sent_args={"test":True,
                                                                  "special_chars":special_chars})
-                    v_cum_loss += v_loss.scalar_value()
-                    v_cum_perplexity += math.exp(v_loss.scalar_value()/perplexity_denom_batch(v_batched_sent))
-                    v_char_count += perplexity_denom_batch(v_batched_sent)
-                    v_sent_count += args.minibatch_size
+                        v_cum_loss += v_loss.scalar_value()
+                        v_cum_perplexity += math.exp(v_loss.scalar_value()/perplexity_denom_batch(v_batched_sent))
+                        v_char_count += perplexity_denom_batch(v_batched_sent)
+                        v_sent_count += args.minibatch_size                                                                 
+                    else:
+                        v_sent = valid_data[vid]
+                        v_loss = lm.BuildLMGraph(v_sent, sent_args={"test":True,
+                                                                 "special_chars":special_chars})
+                        v_cum_loss += v_loss.scalar_value()
+                        v_cum_perplexity += math.exp(v_loss.scalar_value()/perplexity_denom(v_sent))
+                        v_char_count += perplexity_denom(v_sent)
+                        v_sent_count += 1
                 print "[Validation "+str(sample_num) + "]\t" + \
                       "Loss: "+str(v_cum_loss / v_char_count) + "\t" + \
                       "Perplexity: "+str(v_cum_perplexity / v_sent_count) + "\t" + \
@@ -165,16 +176,23 @@ try:
                 print "\n"            
          # end of validation logging
 
-            # isent = [vocab[w].i for w in sent]
-            # loss = lm.BuildLMGraph(isent, sent_args={"special_chars":special_chars})
-            loss = lm.BuildLMGraph_batch(batched_sent, sent_args={"special_chars":special_chars})
-            cum_loss += loss.scalar_value()
-            cum_perplexity += math.exp(loss.value()/perplexity_denom_batch(batched_sent))
-            char_count += perplexity_denom_batch(batched_sent)
-            sent_count += args.minibatch_size
+            if args.minibatch_size == 0:
+                isent = [vocab[w].i for w in sent]
+                loss = lm.BuildLMGraph(isent, sent_args={"special_chars":special_chars})
+                cum_loss += loss.scalar_value()
+                cum_perplexity += math.exp(loss.value()/perplexity_denom(isent))
+                char_count += perplexity_denom(isent)
+                sent_count += 1
+            else:
+                loss = lm.BuildLMGraph_batch(batched_sent, sent_args={"special_chars":special_chars})
+                cum_loss += loss.scalar_value()
+                cum_perplexity += math.exp(loss.value()/perplexity_denom_batch(batched_sent))
+                char_count += perplexity_denom_batch(batched_sent)
+                sent_count += args.minibatch_size
 
             loss.backward()
             sgd.update(args.learning_rate)
+            
             # end of one-sentence train loop
         sgd.update_epoch(args.learning_rate)
         # end of iteration
@@ -211,5 +229,6 @@ except:
     if args.save:
         print "saving..."
         model.save(args.save)
-  
+    print "Unexpected error:", sys.exc_info()[0]
+    raise
 
