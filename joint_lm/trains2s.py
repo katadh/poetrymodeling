@@ -89,7 +89,6 @@ else:
 # evaluate existing model
 if args.eval:
     print "Evaluating model..."
-    print args.test
     test_data = list(util.get_reader(args.reader_mode)(args.test, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
     if args.test:
         s2s.evaluate(test_data)
@@ -111,6 +110,16 @@ else:
     train_data = train_data[:-cutoff]
     print "Train set of size", len(train_data), "/ Validation set of size", len(valid_data)
 print "done."
+
+if args.eval:
+    print "Evaluating model..."
+    train_data = list(util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
+    if args.test:
+        s2s.evaluate(train_data)
+        sys.exit("...done.")
+    else:
+        raise Exception("Test file path argument missing")
+
 
 if args.output:
     outfile = open(args.output, 'w')
