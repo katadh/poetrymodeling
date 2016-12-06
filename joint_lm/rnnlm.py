@@ -251,49 +251,33 @@ class BasicJointRNNLM(RNNLanguageModel):
         state = init_state
         spellings = [] # list of lists containing spellings of the word
 
-
         for (mask, curr_words, next_words) in zip(masks, wids, wids[1:]):
-
-
+            # print curr_words
+            # print next_words
             maxWordLen = max([len(word.s) for word in curr_words])
             wordLengths = [len(word.s) for word in curr_words]
 
-
             for k in range(maxWordLen):
-                spellings.append([(self.s2s.src_vocab[word.s[k]].i if len(word.s)>k else self.s2s.src_vocab.END_TOK.i) for word in curr_words])
+                spellings.append([(self.s2s.src_vocab[word.s[k].upper()].i if len(word.s)>k else self.s2s.src_vocab.END_TOK.i) for word in curr_words])
 
-
-            print "Spellings:", spellings
             spellings_rev = list(reversed(spellings))
             embedded_spellings = self.s2s.embed_batch_seq(spellings)
             embedded_spellings_rev = self.s2s.embed_batch_seq(spellings_rev)
 
-
-            print "Going to encode prons"
             pron_vectors = self.s2s.encode_batch_seq(embedded_spellings, embedded_spellings_rev, wordLengths)[-1]
-            print "Got pron_vectors"
             
             fpv = dynet.nobackprop(pron_vectors)
-            print "Got fpv"
-            fpv_t = dynet.reshape(fpv, (mb_size,), self.s2s.args.hidden_dim*2)
             
             curr_words_idx = [word.i for word in curr_words]
             curr_words_lookup = dynet.lookup_batch(self.lookup, curr_words_idx)
             
-            comb_list = []
-            print "curr words lookup dim", curr_words_lookup.npvalue().shape
-            for cw, pv in zip(curr_words_lookup, fpv_t):
-                temp = dynet.concatenate([cw, pv])
-                comb_list.append(temp)
-
-            print "Got comb_list"
-            concatenated_vec = dynet.concatenate_cols(comb_list)
-            x_t = concatenated_vec
-
+            temp = dynet.concatenate([curr_words_lookup, fpv])
+            x_t = temp
             state = state.add_input(x_t)
             y_t = state.output()
             r_t = bias + (R * y_t)
-            loss = dynet.pickneglogsoftmax_batch(r_t, next_words)
+            next_words_idx = [word.i for word in next_words]
+            loss = dynet.pickneglogsoftmax_batch(r_t, next_words_idx)
             # loss is a list of losses
             # mask the loss if at least one sentence is shorter
             if 0 in mask:

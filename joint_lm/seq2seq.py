@@ -69,7 +69,7 @@ class Seq2SeqBasic(Seq2SeqTemplate):
         return word
 
     def embed_batch_seq(self, wids):
-        print "Embedding wids: ", wids
+        # print "Embedding wids: ", wids
         embedded_batch = [dynet.lookup_batch(self.src_lookup, wid) for wid in wids] 
         return embedded_batch
 

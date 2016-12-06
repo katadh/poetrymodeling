@@ -4,6 +4,7 @@ import util
 import rnnlm as rnnlm
 import argparse, random, time, sys, math
 from itertools import combinations
+from __future__ import division
 sys.setrecursionlimit(5000) # sometimes we need to recurse a lot
 random.seed(78789)
 
@@ -134,6 +135,7 @@ try:
                 print "Loss:", cum_loss / char_count,
                 print "Perplexity:", cum_perplexity / sent_count,
                 print "Time elapsed:", (time.time() - _start),
+                print "sents per second", sent_count/(time.time() - _start)
                 _start = time.time()
                 sample = lm.sample(first=BEGIN_TOKEN,stop=END_TOKEN,nchars=1000)
                 if sample: print vocab.pp(sample, ' '),
@@ -165,7 +167,8 @@ try:
                 print "[Validation "+str(sample_num) + "]\t" + \
                       "Loss: "+str(v_cum_loss / v_char_count) + "\t" + \
                       "Perplexity: "+str(v_cum_perplexity / v_sent_count) + "\t" + \
-                      "Time elapsed: "+str(time.time() - v_start),
+                      "Time elapsed: "+str(time.time() - v_start) + "\t" + \
+                      "sents per second", v_sent_count/(time.time() - v_start)
                 if args.output:
                     print "(logging to", args.output + ")"
                     with open(args.output, "a") as outfile:
