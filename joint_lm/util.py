@@ -214,10 +214,10 @@ class CMUDictCorpusReader(CorpusReaderTemplate):
                 doc = f.read()
                 for line in doc.split("\n"):
                     if not line: continue
-                    if line[0] not in "QWERTYUIOPASDFGHJKLZXCVBNM": continue
+                    if line[0] not in "QWERTYUIOPASDFGHJKLZXCVBNM<>": continue
                     spell, pronounce = line.split("  ")
                     if "(" in spell: spell = spell.split("(")[0]
-                    spell = [char for char in spell if char in "QWERTYUIOPASDFGHJKLZXCVBNM"]
+                    spell = [char for char in spell if char in "QWERTYUIOPASDFGHJKLZXCVBNM<>"]
                     spell = [self.begin]+spell+[self.end]
                     pronounce = pronounce.split(" ")+[self.end]
                     yield (spell, pronounce)
@@ -254,13 +254,13 @@ class OHHLACorpusReader(CorpusReaderTemplate):
                         yield (inp_toks, outp_toks)
 
 class OEDILFCorpusReader(CorpusReaderTemplate):
-    names = {"oedilf", "oedilf_rhymes"}
+    names = {"oedilf", "oedilf_rhymes", "oedilf_s2s"}
     def __init__(self, fname, begin=None, end=None, mode="oedilf"):
         self.fname = fname
         self.mode = mode
         self.begin = begin
         self.end = end
-        self.seq2seq = False
+        self.seq2seq = mode == "oedilf_s2s"
 
     def __iter__(self):
         if os.path.isdir(self.fname):
@@ -288,6 +288,15 @@ class OEDILFCorpusReader(CorpusReaderTemplate):
                         line_toks =  ' '.join(tokenize(line)).split(" ")[-1:] + ['<br'+str(i)+'>']
                         toks += [tok for tok in line_toks if tok != '']
                     yield toks + [self.end]
+                if self.mode == "oedilf_s2s":
+                    history = []
+                    for i, line in enumerate(doc.split("\n")):
+                        if not line: continue
+                        line = ''.join([char for char in line.lower() if char in "qwertyuioplkjhgfdsazxcvbnm "])
+                        line_toks =  ' '.join(tokenize(line)).split(" ") + ['<br'+str(i)+'>']
+                        line_toks = [tok for tok in line_toks if tok != '']
+                        yield [self.begin] + history + [self.end], line_toks + [self.end]
+                        history += line_toks
 
 class SquadCorpusReader(CorpusReaderTemplate):
     names = {"squad", "squad_ptr", "squad_word"}
