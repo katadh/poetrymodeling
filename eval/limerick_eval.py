@@ -3,12 +3,37 @@ import pronouncing as pro
 import re
 
 desired_syllables = [9.0, 9.0, 6.0, 6.0, 9.0]
-rhyming_line_sets = [[1, 2, 5], [3, 4]]
+rhyming_line_sets = [[0, 1, 4], [2, 3]]
+punc = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~'
+
+out_words_file = "out_dict_words.txt"
+
+def log_out_word(word):
+
+    global out_words_file
+
+    with open(out_words_file, 'a') as out_words:
+        out_words.write(word + '\n')
 
 def line_syllables(line):
 
-    phones = [pro.phones_for_word(word)[0] for word in line.split()]
-    num_syllables = sum([pro.syllable_count(phone_seq) for phone_seq in phones])
+    global punc
+    words = line.split()
+    #phones = [pro.phones_for_word(word)[0] for word in words]
+    line_phones = []
+    num_syllables = 0
+    for word in words:
+        word = word.translate(None, punc).lower()
+        word_phones = pro.phones_for_word(word)
+        if word_phones == []:
+            # add syllables with the average of 3 letters per syllable
+            num_syllables += len(word) / 3
+            log_out_word(word)
+        else:
+            line_phones.append(word_phones[0]) 
+    
+    #print [pro.syllable_count(phone_seq) for phone_seq in line_phones]
+    num_syllables += sum([pro.syllable_count(phone_seq) for phone_seq in line_phones])
     return num_syllables
 
 def line_syllable_error(lines):
@@ -17,13 +42,14 @@ def line_syllable_error(lines):
 
     errors = []
     for i in range(len(lines)):
-        obs_syllables = line_syllables(line[i])
+        obs_syllables = line_syllables(lines[i])
         if i < len(desired_syllables):
             errors.append(abs(obs_syllables - desired_syllables[i]))
         else:
             errors.append(obs_syllables)
 
     if len(lines) < len(desired_syllables):
+        "Too few lines"
         for i in range(len(lines),len(desired_syllables)):
             errors.append(desired_syllables[i])
 
@@ -72,6 +98,7 @@ def average_total_syllable_error(limericks):
 def rhyming_error(limerick):
 
     global rhyming_line_sets
+    global punc
     
     lines = limerick.split('\n')
     #lines = re.split('<br.>', limerick)
@@ -79,19 +106,32 @@ def rhyming_error(limerick):
     line_words = [line.split() for line in lines]
 
     total_rhyme_error = 0
-    for rhyming_lines in rhyming_line_sets:
+    for rhyme_lines in rhyming_line_sets:
 
         min_error = float("inf")
         for i in rhyme_lines:
-
-            rhymes = pro.rhymes(line_words[i][-1])
+            #print "i: ", i
+            word = line_words[i][-1].translate(None, punc).lower()
+            #print "given: ", word
+            rhymes = pro.rhymes(word)
+            if rhymes == []:
+                log_out_word(word)
+                continue
             rhyme_error = 0
-            for j in (rhyme_lines[:i] + rhyme_lines[i+1:]):
-                if line_words[j][-1] not in rhymes:
+
+            index = rhyme_lines.index(i)
+            for j in (rhyme_lines[:index] + rhyme_lines[index+1:]):
+                #print "j: ", j
+                query_word = line_words[j][-1].translate(None, punc).lower()
+                #print "compare: ", query_word
+                if query_word not in rhymes:
                     rhyme_error += 1
+                    print rhyme_error
 
             if rhyme_error < min_error:
                 min_error = rhyme_error
-        total_rhyme_error += min_error
+
+        if min_error >= 0:
+            total_rhyme_error += min_error
 
     return total_rhyme_error
