@@ -1,12 +1,15 @@
 screen: basic_model
-python trainlm.py --dynet-mem 15000 --train=../data/oedilf --reader_mode=oedilf --split_train --layers=2 --input_dim=64 --hidden_dim=256 --output=basic_model_1205.log --save=basic_model_1205.params --minibatch_size=256
+python trainlm.py --dynet-mem 15000 --train=../data/oedilf --reader_mode=oedilf --split_train --layers=1 --input_dim=64 --hidden_dim=256 --output=basic_model_1206.log --save=basic_model_1206.params --minibatch_size=64
 
-screen: basic_mod_2
-python trainlm.py --dynet-mem 10000 --train=../data/oedilf --reader_mode=oedilf --split_train --layers=1 --input_dim=64 --hidden_dim=256 --output=basic_model_1205_2.log --save=basic_model_1205_2.params --minibatch_size=128
+screen: pron_model
+python trainlm.py --dynet-mem 15000 --train=../data/oedilf --reader_mode=oedilf --model=prononly --s2s=basicpronouncer.model --s2s_type=basic --split_train --layers=1 --input_dim=64 --hidden_dim=256 --output=joint_basic_model.log --save=joint_basic.params --minibatch_size=64
 
-screen: joint_basic_model
-python trainlm.py --dynet-mem 15000 --train=../data/oedilf --reader_mode=oedilf --model=joint --s2s=basicpronouncer.model --s2s_type=basic --split_train --layers=1 --input_dim=64 --hidden_dim=256 --output=joint_basic_model_1205.log --save=joint_basic_1205.params --minibatch_size=64
+screen: joint_attention
+python trains2s.py --dynet-mem 10000 --train=../data/oedilf --reader_mode=oedilf_s2s --model=joint_attention --pronouncer=basicpronouncer.model --input_dim=128 --hidden_dim=256 --unk_thresh=0 --save=next_line_joint_s2s_1206.model
 
-NOT YET STARTED BELOW
+# screen: basic_mod_2
+# python trainlm.py --dynet-mem 10000 --train=../data/oedilf --reader_mode=oedilf --split_train --layers=1 --input_dim=64 --hidden_dim=256 --output=basic_model_1205_2.log --save=basic_model_1205_2.params --minibatch_size=128
 
-python trains2s.py --dynet-mem 5000 --train=../data/oedilf --reader_mode=oedilf_s2s --model=joint_attention --pronouncer=basicpronouncer.model --input_dim=128 --hidden_dim=256 --unk_thresh=0 --save=next_line_joint_s2s_1205.model
+#screen: joint_basic_model
+#python trainlm.py --dynet-mem 15000 --train=../data/oedilf --reader_mode=oedilf --model=joint --s2s=basicpronouncer.model --s2s_type=basic --split_train --layers=1 --input_dim=64 --hidden_dim=256 --output=joint_basic_model_1205.log --save=joint_basic_1205.params --minibatch_size=64
+
