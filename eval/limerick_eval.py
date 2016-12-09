@@ -118,20 +118,26 @@ def rhyming_error(limerick):
     global rhyming_line_sets
     global punc
     
+    total_rhyme_error = 0
+
     lines = limerick.split('\n')
+    if len(lines) > 5:
+        total_rhyme_error += len(lines) - 5
     #lines = re.split('<br.>', limerick)
 
     line_words = [line.split() for line in lines]
 
-    total_rhyme_error = 0
     for rhyme_lines in rhyming_line_sets:
 
         min_error = float("inf")
         for i in rhyme_lines:
             #print "i: ", i
-            word = line_words[i][-1].translate(None, punc)
-            #print "given: ", word
-            rhymes = pro.rhymes(word)
+            if i < len(line_words) and line_words[i] != []:
+                word = line_words[i][-1].translate(None, punc)
+                rhymes = pro.rhymes(word)
+            else:
+                rhymes = []
+                #print "given: ", word
             if rhymes == []:
                 log_out_word(word, "rhyme")
             #print rhymes
@@ -140,7 +146,10 @@ def rhyming_error(limerick):
             index = rhyme_lines.index(i)
             for j in (rhyme_lines[:index] + rhyme_lines[index+1:]):
                 #print "j: ", j
-                query_word = line_words[j][-1].translate(None, punc)
+                if j < len(line_words) and line_words[j] != []:
+                    query_word = line_words[j][-1].translate(None, punc)
+                else:
+                    query_word = ""
                 #print "compare: ", query_word
                 #print query_word
                 if query_word not in rhymes:
@@ -160,12 +169,13 @@ def average_rhyming_error(limericks):
 
     total_error = 0.0
     for limerick in limericks:
+        #print limerick
         total_error += rhyming_error(limerick)
 
     return 1.0 * total_error / len(limericks)
     
 
-def evaluate_limerick_files(dir_path, num_lim):
+def eval_limerick_files(dir_path, num_lim):
 
     lim_files = os.listdir(dir_path)
 
@@ -180,6 +190,21 @@ def evaluate_limerick_files(dir_path, num_lim):
         lim_files.remove(lim_file)
 
     #print limericks
+
+    avg_line_struct_error = average_line_syllable_error(limericks)
+    avg_total_struct_error = average_total_syllable_error(limericks)
+    avg_rhyme_error = average_rhyming_error(limericks)
+
+    return avg_line_struct_error, avg_total_struct_error, avg_rhyme_error
+
+def eval_file_limericks(path):
+
+    limericks = []
+
+    with open(path, 'r') as lims_file:
+        limericks = lims_file.readlines()
+
+    limericks = [lim.replace(' <br> ', '\n').encode('ascii', 'ignore').lower() for lim in limericks]
 
     avg_line_struct_error = average_line_syllable_error(limericks)
     avg_total_struct_error = average_total_syllable_error(limericks)
