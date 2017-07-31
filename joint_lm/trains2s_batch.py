@@ -12,6 +12,7 @@ parser = argparse.ArgumentParser()
 
 ## need to have this dummy argument for dynet
 parser.add_argument("--dynet-mem")
+parser.add_argument("--dynet-gpu")
 
 ## locations of data
 parser.add_argument("--train")

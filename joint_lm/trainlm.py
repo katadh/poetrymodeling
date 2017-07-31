@@ -1,10 +1,10 @@
+from __future__ import division
 import dynet
 import seq2seq
 import util
 import rnnlm as rnnlm
 import argparse, random, time, sys, math
 from itertools import combinations
-from __future__ import division
 sys.setrecursionlimit(5000) # sometimes we need to recurse a lot
 random.seed(78789)
 
@@ -12,6 +12,7 @@ parser = argparse.ArgumentParser()
 
 ## need to have this dummy argument for dynet
 parser.add_argument("--dynet-mem")
+parser.add_argument("--dynet-gpu")
 
 ## locations of data
 parser.add_argument("--train", default="../data/ohhla")
@@ -107,8 +108,8 @@ perplexity_denom_batch = lambda batch: sum([perplexity_denom(sent) for sent in b
 
 # Store starting index of each minibatch
 if args.minibatch_size != 0:
-    train_order = [x*args.minibatch_size for x in range(len(train_data)/args.minibatch_size + (1 if len(valid_data)%args.minibatch_size != 0 else 0))]
-    valid_order = [x*args.minibatch_size for x in range(len(valid_data)/args.minibatch_size + (1 if len(valid_data)%args.minibatch_size != 0 else 0))]
+    train_order = [x*args.minibatch_size for x in range(len(train_data)//args.minibatch_size + (1 if len(train_data)%args.minibatch_size != 0 else 0))]
+    valid_order = [x*args.minibatch_size for x in range(len(valid_data)//args.minibatch_size + (1 if len(valid_data)%args.minibatch_size != 0 else 0))]
 else:
 	train_order = range(len(train_data))
 	valid_order = range(len(valid_data))
@@ -201,37 +202,35 @@ try:
         # end of iteration
     # end of training loop
 
-    test_order = [x*args.minibatch_size for x in range(len(test_data)/args.minibatch_size + (1 if len(test_data)%args.minibatch_size != 0 else 0))]
-    t_char_count = t_sent_count = t_cum_loss = t_cum_perplexity = 0.0
-    t_start = time.time()
-    for tid in test_order:
-        # t_isent = [vocab[w].i for w in t_sent]
-        t_batched_sent = test_data[tid : tid + args.minibatch_size]
-        t_loss = lm.BuildLMGraph_batch(t_batched_sent, sent_args={"test":True, 
-                                                     "special_chars":special_chars})
-        t_cum_loss += t_loss.scalar_value()
-        t_cum_perplexity += math.exp(t_loss.scalar_value()/perplexity_denom_batch(t_batched_sent))
-        t_char_count += perplexity_denom_batch(t_batched_sent)
-        t_sent_count += args.minibatch_size
-    #print "[Test]\t" + \
-    #      "Loss: "+str(t_cum_loss / t_char_count) + "\t" + \
-    #      "Perplexity: "+str(t_cum_perplexity / t_sent_count) + "\t" + \
-    #      "Time: "+str(time.time() - t_start),
-    if args.output:
-        print "(logging to", args.output + ")"
-        with open(args.output, "a") as outfile:
-            outfile.write(str("TEST") + "\t" + \
-                          str("TEST") + "\t" + \
-                          str(t_cum_loss / t_char_count) + "\t" + \
-                          str(t_cum_perplexity / t_sent_count) + "\n")
-    if args.save:
-        print "saving..."
-        model.save(args.save)
-        
+    if not args.split_train:
+        test_order = [x*args.minibatch_size for x in range(len(test_data)/args.minibatch_size + (1 if len(test_data)%args.minibatch_size != 0 else 0))]
+        t_char_count = t_sent_count = t_cum_loss = t_cum_perplexity = 0.0
+        t_start = time.time()
+        for tid in test_order:
+            # t_isent = [vocab[w].i for w in t_sent]
+            t_batched_sent = test_data[tid : tid + args.minibatch_size]
+            t_loss = lm.BuildLMGraph_batch(t_batched_sent, sent_args={"test":True, 
+                                                                      "special_chars":special_chars})
+            t_cum_loss += t_loss.scalar_value()
+            t_cum_perplexity += math.exp(t_loss.scalar_value()/perplexity_denom_batch(t_batched_sent))
+            t_char_count += perplexity_denom_batch(t_batched_sent)
+            t_sent_count += args.minibatch_size
+            #print "[Test]\t" + \
+                #      "Loss: "+str(t_cum_loss / t_char_count) + "\t" + \
+                #      "Perplexity: "+str(t_cum_perplexity / t_sent_count) + "\t" + \
+                #      "Time: "+str(time.time() - t_start),
+            if args.output:
+                print "(logging to", args.output + ")"
+                with open(args.output, "a") as outfile:
+                    outfile.write(str("TEST") + "\t" + \
+                                  str("TEST") + "\t" + \
+                                  str(t_cum_loss / t_char_count) + "\t" + \
+                                  str(t_cum_perplexity / t_sent_count) + "\n")
+                    
 except:
-    if args.save:
-        print "saving..."
-        model.save(args.save)
     print "Unexpected error:", sys.exc_info()[0]
     raise
-
+finally:
+    if args.save:
+        print "saving..."
+        model.save(args.save)
