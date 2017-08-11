@@ -3,6 +3,7 @@ import random
 import util
 import math
 import seq2seq
+import sys
 
 
 ###########################################################################
@@ -65,6 +66,7 @@ class BaselineRNNLM(RNNLanguageModel):
 
 
         for (cw,nw) in zip(sent,sent[1:]):
+            #print cw, nw
             x_t = self.lookup[cw]
             state = state.add_input(x_t)
             y_t = state.output()
@@ -76,6 +78,7 @@ class BaselineRNNLM(RNNLanguageModel):
 
 
     def BuildLMGraph_batch(self, sents, sent_args=None):
+        #print sents, sent_args
         dynet.renew_cg()
         init_state = self.rnn.initial_state()
         mb_size = len(sents)
@@ -111,8 +114,8 @@ class BaselineRNNLM(RNNLanguageModel):
 
 
         for (mask, curr_words, next_words) in zip(masks,wids,wids[1:]):
-            # print "Current words: ", curr_words
-            # print "Next words: ", next_words
+            #print "Current words: ", curr_words
+            #print "Next words: ", next_words
             x_t = dynet.lookup_batch(self.lookup, curr_words) 
             state = state.add_input(x_t)
             y_t = state.output()
@@ -187,6 +190,8 @@ class BasicJointRNNLM(RNNLanguageModel):
         self.R = model.add_parameters((vocab.size, args.hidden_dim))
         self.bias = model.add_parameters((vocab.size,))
 
+        print "finished initialization"
+
 
     def BuildLMGraph(self, sent, sent_args=None):
         dynet.renew_cg()
@@ -208,7 +213,6 @@ class BasicJointRNNLM(RNNLanguageModel):
             embedded_spelling = self.s2s.embed_seq(spelling)
             pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
             fpv = dynet.nobackprop(pron_vector)
-
 
             x_t = dynet.concatenate([self.lookup[cw.i], fpv])
             state = state.add_input(x_t)
