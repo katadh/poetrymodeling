@@ -35,19 +35,16 @@ def get_lm(name):
 class BaselineRNNLM(RNNLanguageModel):
     name = "baseline"
 
-
     def __init__(self, model, vocab, args):
         self.m = model
         self.vocab = vocab
         self.args = args
 
-
-        if args.s2s:
-            print "loading s2s..."
-            self.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
+       # if args.s2s:
+       #     print "loading s2s..."
+       #     self.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
         
         self.rnn = args.rnn(args.layers, args.input_dim, args.hidden_dim, model)
-
 
         self.lookup = model.add_lookup_parameters((vocab.size, args.input_dim))
         self.R = model.add_parameters((vocab.size, args.hidden_dim))
@@ -58,12 +55,10 @@ class BaselineRNNLM(RNNLanguageModel):
         dynet.renew_cg()
         init_state = self.rnn.initial_state()
 
-
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
         errs = [] # will hold expressions
         state = init_state
-
 
         for (cw,nw) in zip(sent,sent[1:]):
             #print cw, nw
@@ -78,24 +73,21 @@ class BaselineRNNLM(RNNLanguageModel):
 
 
     def BuildLMGraph_batch(self, sents, sent_args=None):
-        #print sents, sent_args
+        #print sents
         dynet.renew_cg()
         init_state = self.rnn.initial_state()
         mb_size = len(sents)
         #MASK SENTENCES
         wids = [] # Dimension: maxSentLength * minibatch_size
 
-
         # List of lists to store whether an input is 
         # present(1)/absent(0) for an example at a time step
         masks = [] # Dimension: maxSentLength * minibatch_size
-
 
         #No of words processed in this batch
         tot_words = 0
         maxSentLength = max([len(sent) for sent in sents])
         sentLengths =[len(sent) for sent in sents]
-
 
         for k in range(maxSentLength):
             wids.append([(self.vocab.s2t[sent[k]].i if len(sent)>k else self.vocab.END_TOK.i) for sent in sents])
@@ -103,15 +95,12 @@ class BaselineRNNLM(RNNLanguageModel):
             masks.append(mask)
             tot_words += sum(mask)
 
-
         # print "WIDS:", wids
-
 
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
         losses = [] # will hold losses
         state = init_state
-
 
         for (mask, curr_words, next_words) in zip(masks,wids,wids[1:]):
             #print "Current words: ", curr_words
@@ -129,7 +118,6 @@ class BaselineRNNLM(RNNLanguageModel):
                 loss = loss * mask_expr
             losses.append(loss)
 
-
         netloss = dynet.sum_batches(dynet.esum(losses))
         return netloss
 
@@ -138,11 +126,9 @@ class BaselineRNNLM(RNNLanguageModel):
         first = self.vocab[first].i
         stop = self.vocab[stop].i
 
-
         res = [first]
         dynet.renew_cg()
         state = self.rnn.initial_state()
-
 
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
@@ -173,18 +159,15 @@ class BaselineRNNLM(RNNLanguageModel):
 class BasicJointRNNLM(RNNLanguageModel):
     name = "joint"
 
-
-    def __init__(self, model, vocab, args):
+    def __init__(self, model, vocab, pron_dict, s2s, args):
         self.m = model
         self.vocab = vocab
+        self.pron_dict = pron_dict
         self.args = args
 
-        if args.s2s:
-            print "loading s2s..."
-            self.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
+        self.s2s = s2s
 			
         self.rnn = args.rnn(args.layers, self.s2s.args.hidden_dim*2 + args.input_dim, args.hidden_dim, model)
-
 
         self.lookup = model.add_lookup_parameters((vocab.size, args.input_dim))
         self.R = model.add_parameters((vocab.size, args.hidden_dim))
@@ -197,22 +180,26 @@ class BasicJointRNNLM(RNNLanguageModel):
         dynet.renew_cg()
         init_state = self.rnn.initial_state()
 
-
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
         errs = [] # will hold expressions
         state = init_state
 
-
         for (cw,nw) in zip(sent,sent[1:]):
             cw = self.vocab[cw]
             nw = self.vocab[nw]
 
-
-            spelling = [self.s2s.src_vocab[letter] for letter in cw.s.upper()]
-            embedded_spelling = self.s2s.embed_seq(spelling)
-            pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
-            fpv = dynet.nobackprop(pron_vector)
+            #print "before if"
+            if cw.s in self.pron_dict.pdict:
+                #print "string in pron dict"
+                fpv = self.pron_dict.pdict[cw.s]
+                fpv = dynet.inputVector(fpv)
+            else:
+                #print "string not in pron dict"
+                spelling = [self.s2s.src_vocab[letter] for letter in cw.s.upper()]
+                embedded_spelling = self.s2s.embed_seq(spelling)
+                pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
+                fpv = dynet.nobackprop(pron_vector)
 
             x_t = dynet.concatenate([self.lookup[cw.i], fpv])
             state = state.add_input(x_t)
@@ -231,23 +218,19 @@ class BasicJointRNNLM(RNNLanguageModel):
         #MASK SENTENCES
         wids = [] # Dimension: maxSentLength * minibatch_size
 
-
         # List of lists to store whether an input is 
         # present(1)/absent(0) for an example at a time step
         masks = [] # Dimension: maxSentLength * minibatch_size
 
-
         #No of words processed in this batch
         tot_words = 0
         maxSentLength = max([len(sent) for sent in sents])
-
 
         for k in range(maxSentLength):
             wids.append([(self.vocab.s2t[sent[k]] if len(sent)>k else self.vocab.END_TOK) for sent in sents])
             mask = [(1 if len(sent)>k else 0) for sent in sents]
             masks.append(mask)
             tot_words += sum(mask)
-
 
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
@@ -275,8 +258,7 @@ class BasicJointRNNLM(RNNLanguageModel):
             curr_words_idx = [word.i for word in curr_words]
             curr_words_lookup = dynet.lookup_batch(self.lookup, curr_words_idx)
             
-            temp = dynet.concatenate([curr_words_lookup, fpv])
-            x_t = temp
+            x_t = dynet.concatenate([curr_words_lookup, fpv])
             state = state.add_input(x_t)
             y_t = state.output()
             r_t = bias + (R * y_t)
@@ -290,35 +272,29 @@ class BasicJointRNNLM(RNNLanguageModel):
                 loss = loss * mask_expr
             losses.append(loss)
 
-
         netloss = dynet.sum_batches(dynet.esum(losses))
         return netloss
-
-
-
-
-
-
 
 
     def sample(self, first=0, stop=-1, nchars=100):
         first = self.vocab[first].i
         stop = self.vocab[stop].i
 
-
         res = [first]
         dynet.renew_cg()
         state = self.rnn.initial_state()
-
 
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
         cw = first
         while True:
+            #if cw.s in self.pron_dict.pdict:
+            #    pron_vector = self.pron_dict.pdict[cw.s]
+            #    pron_vector = dynet.inputVector(pron_vector)
+            #else:
             spelling = [self.s2s.src_vocab[letter] for letter in self.vocab[cw].s.upper()]
             embedded_spelling = self.s2s.embed_seq(spelling)
             pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
-
 
             x_t = dynet.concatenate([self.lookup[cw], pron_vector])
             state = state.add_input(x_t)
@@ -345,15 +321,13 @@ class BasicJointRNNLM(RNNLanguageModel):
 class PhonemeOnlyRNNLM(RNNLanguageModel):
     name = "prononly"
 
-
-    def __init__(self, model, vocab, args):
+    def __init__(self, model, vocab, pron_dict, s2s, args):
         self.m = model
         self.vocab = vocab
+        self.pron_dict = pron_dict
         self.args = args
 
-        if args.s2s:
-            print "loading s2s..."
-            self.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
+        self.s2s = s2s
 			
         self.rnn = args.rnn(args.layers, self.s2s.args.hidden_dim*2, args.hidden_dim, model)
 
@@ -366,23 +340,23 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
         dynet.renew_cg()
         init_state = self.rnn.initial_state()
 
-
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
         errs = [] # will hold expressions
         state = init_state
 
-
         for (cw,nw) in zip(sent,sent[1:]):
             cw = self.vocab[cw]
             nw = self.vocab[nw]
 
-
-            spelling = [self.s2s.src_vocab[letter] for letter in cw.s.upper()]
-            embedded_spelling = self.s2s.embed_seq(spelling)
-            pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
-            fpv = dynet.nobackprop(pron_vector)
-
+            if cw.s in self.pron_dict.pdict:
+                fpv = self.pron_dict.pdict[cw.s]
+                fpv = dynet.inputVector(fpv)
+            else:
+                spelling = [self.s2s.src_vocab[letter] for letter in cw.s.upper()]
+                embedded_spelling = self.s2s.embed_seq(spelling)
+                pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
+                fpv = dynet.nobackprop(pron_vector)
 
             x_t = fpv
             state = state.add_input(x_t)
@@ -401,17 +375,14 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
         #MASK SENTENCES
         wids = [] # Dimension: maxSentLength * minibatch_size
 
-
         # List of lists to store whether an input is 
         # present(1)/absent(0) for an example at a time step
         masks = [] # Dimension: maxSentLength * minibatch_size
-
 
         #No of words processed in this batch
         tot_words = 0
         maxSentLength = max([len(sent) for sent in sents])
         sentLengths =[len(sent) for sent in sents]
-
 
         for k in range(maxSentLength):
             wids.append([(self.vocab.s2t[sent[k]].i if len(sent)>k else self.vocab.END_TOK.i) for sent in sents])
@@ -419,12 +390,10 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
             masks.append(mask)
             tot_words += sum(mask)
 
-
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
         losses = [] # will hold losses
         state = init_state
-
 
         for (mask, curr_words, next_words) in zip(masks,wids,wids[1:]):
             # print "Current words: ", curr_words
@@ -442,7 +411,6 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
                 loss = loss * mask_expr
             losses.append(loss)
 
-
         netloss = dynet.sum_batches(dynet.esum(losses))
         return netloss
 
@@ -451,20 +419,21 @@ class PhonemeOnlyRNNLM(RNNLanguageModel):
         first = self.vocab[first].i
         stop = self.vocab[stop].i
 
-
         res = [first]
         dynet.renew_cg()
         state = self.rnn.initial_state()
-
 
         R = dynet.parameter(self.R)
         bias = dynet.parameter(self.bias)
         cw = first
         while True:
+            #if cw.s in self.pron_dict.pdict:
+            #    pron_vector = self.pron_dict.pdict[cw.s]
+            #    pron_vector = dynet.inputVector(pron_vector)
+            #else:
             spelling = [self.s2s.src_vocab[letter] for letter in self.vocab[cw].s.upper()]
             embedded_spelling = self.s2s.embed_seq(spelling)
             pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
-
 
             x_t = pron_vector
             state = state.add_input(x_t)

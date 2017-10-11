@@ -2,6 +2,7 @@ from __future__ import division
 import dynet
 import seq2seq
 import util
+import os
 import rnnlm as rnnlm
 import argparse, random, time, sys, math
 from itertools import combinations
@@ -40,8 +41,8 @@ parser.add_argument("--epochs", default=10, type=int)
 parser.add_argument("--learning_rate", default=1.0, type=float)
 #parser.add_argument("--max_corpus_size", default=100000, type=int)
 parser.add_argument("--log_train_every_n", default=500, type=int)
-parser.add_argument("--log_valid_every_n", default=1000, type=int)
-parser.add_argument("--output")
+parser.add_argument("--log_valid_every_n", default=2500, type=int)
+parser.add_argument("--output", default="lm.log")
 parser.add_argument('--ignore_parens_perplexity', action='store_true')
 
 ## choose what model to use
@@ -49,11 +50,11 @@ parser.add_argument("--model", default="baseline")
 parser.add_argument("--s2s")
 parser.add_argument("--s2s_type", default="basic")
 parser.add_argument("--load")
-parser.add_argument("--save", default="most_recent_lm")
+parser.add_argument("--save", default="test_lm.model")
 
 ## model-specific parameters
 parser.add_argument("--sample_count", default=10, type=int)
-parser.add_argument("--minibatch_size", default=100, type=int)
+parser.add_argument("--minibatch_size", default=1, type=int)
 
 args = parser.parse_args()
 print "ARGS:", args
@@ -77,17 +78,12 @@ sgd = dynet.SimpleSGDTrainer(model)
 #     print "loading s2s..."
 #     args.s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
 
-RNNModel = rnnlm.get_lm(args.model)
-lm = RNNModel(model, vocab, args)
-
-if args.load:
-    print "loading params..."
-    model.load(args.load)
-
 train_data = list(util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
+
+
 if not args.split_train:
     valid_data = list(util.get_reader(args.reader_mode)(args.valid, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
-    test_data  = list(util.get_reader(args.reader_mode)(args.test, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
+    #test_data  = list(util.get_reader(args.reader_mode)(args.test, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
 else:
     if args.percent_valid > 1: cutoff = args.percent_valid
     else: cutoff = int(len(train_data)*(args.percent_valid))
@@ -97,8 +93,31 @@ else:
     #test_data = train_data[-int(len(train_data)*args.percent_test):]
     #train_data = train_data[:-int(len(train_data)*(args.percent_valid+args.percent_test))]
 
+print "finished loading data"
+
+RNNModel = rnnlm.get_lm(args.model)
+
+if args.s2s:
+    print "loading s2s..."
+    s2s = seq2seq.get_s2s(args.s2s_type).load(model, args.s2s)
+
+    pron_dict = util.PronDict(model, s2s)
+    print "getting prons for train data"
+    pron_dict.add_prons(train_data)
+    print "getting prons for valid data"
+    pron_dict.add_prons(valid_data)
+
+    lm = RNNModel(model, vocab, pron_dict, s2s, args)
+else:
+    lm = RNNModel(model, vocab, args)
+
+if args.load:
+    print "loading params..."
+    model.load(args.load)
+
 if args.output:
-    outfile = open(args.output, 'w')
+    if not os.path.exists(args.save): os.makedirs(args.save)
+    outfile = open(args.save + "/" + args.output, 'w')
     outfile.write("")
     outfile.close()
 
@@ -113,8 +132,6 @@ if args.minibatch_size != 1:
 else:
 	train_order = range(len(train_data))
 	valid_order = range(len(valid_data))
-
-print "finished loading data"
 
 try:
     char_count = sent_count = cum_loss = cum_perplexity = 0.0
@@ -172,8 +189,8 @@ try:
                       "Time elapsed: "+str(time.time() - v_start) + "\t" + \
                       "sents per second", v_sent_count/(time.time() - v_start)
                 if args.output:
-                    print "(logging to", args.output + ")"
-                    with open(args.output, "a") as outfile:
+                    print "(logging to", args.save + "/" + args.output + ")"
+                    with open(args.save + "/" + args.output, "a") as outfile:
                         outfile.write(str(ITER) + "\t" + \
                                       str(sample_num) + "\t" + \
                                       str(v_cum_loss / v_char_count) + "\t" + \
@@ -203,35 +220,36 @@ try:
         # end of iteration
     # end of training loop
 
-    if not args.split_train:
-        test_order = [x*args.minibatch_size for x in range(len(test_data)/args.minibatch_size + (1 if len(test_data)%args.minibatch_size != 0 else 0))]
-        t_char_count = t_sent_count = t_cum_loss = t_cum_perplexity = 0.0
-        t_start = time.time()
-        for tid in test_order:
-            # t_isent = [vocab[w].i for w in t_sent]
-            t_batched_sent = test_data[tid : tid + args.minibatch_size]
-            t_loss = lm.BuildLMGraph_batch(t_batched_sent, sent_args={"test":True, 
-                                                                      "special_chars":special_chars})
-            t_cum_loss += t_loss.scalar_value()
-            t_cum_perplexity += math.exp(t_loss.scalar_value()/perplexity_denom_batch(t_batched_sent))
-            t_char_count += perplexity_denom_batch(t_batched_sent)
-            t_sent_count += args.minibatch_size
-            #print "[Test]\t" + \
-                #      "Loss: "+str(t_cum_loss / t_char_count) + "\t" + \
-                #      "Perplexity: "+str(t_cum_perplexity / t_sent_count) + "\t" + \
-                #      "Time: "+str(time.time() - t_start),
-            if args.output:
-                print "(logging to", args.output + ")"
-                with open(args.output, "a") as outfile:
-                    outfile.write(str("TEST") + "\t" + \
-                                  str("TEST") + "\t" + \
-                                  str(t_cum_loss / t_char_count) + "\t" + \
-                                  str(t_cum_perplexity / t_sent_count) + "\n")
+    #if not args.split_train:
+    #    test_order = [x*args.minibatch_size for x in range(len(test_data)/args.minibatch_size + (1 if len(test_data)%args.minibatch_size != 0 else 0))]
+    #    t_char_count = t_sent_count = t_cum_loss = t_cum_perplexity = 0.0
+    #    t_start = time.time()
+    #    for tid in test_order:
+    #        # t_isent = [vocab[w].i for w in t_sent]
+    #        t_batched_sent = test_data[tid : tid + args.minibatch_size]
+    #        t_loss = lm.BuildLMGraph_batch(t_batched_sent, sent_args={"test":True, 
+    #                                                                  "special_chars":special_chars})
+    #        t_cum_loss += t_loss.scalar_value()
+    #        t_cum_perplexity += math.exp(t_loss.scalar_value()/perplexity_denom_batch(t_batched_sent))
+    #        t_char_count += perplexity_denom_batch(t_batched_sent)
+    #        t_sent_count += args.minibatch_size
+    #        print "[Test]\t" + \
+    #            "Loss: "+str(t_cum_loss / t_char_count) + "\t" + \
+    #            "Perplexity: "+str(t_cum_perplexity / t_sent_count) + "\t" + \
+    #            "Time: "+str(time.time() - t_start),
+    #        if args.output:
+    #            print "(logging to", args.output + ")"
+    #            with open(args.output, "a") as outfile:
+    #                outfile.write(str("TEST") + "\t" + \
+    #                              str("TEST") + "\t" + \
+    #                              str(t_cum_loss / t_char_count) + "\t" + \
+    #                              str(t_cum_perplexity / t_sent_count) + "\n")
                     
 except:
     print "Unexpected error:", sys.exc_info()[0]
     raise
 finally:
-    if args.save:
-        print "saving..."
-        model.save(args.save)
+    print "saving..."
+    if not os.path.exists(args.save): os.makedirs(args.save)
+    model.save(args.save + "/params")
+    with open(args.save+"/args", "w") as f: pickle.dump(args, f)

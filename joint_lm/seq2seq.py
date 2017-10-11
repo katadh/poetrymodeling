@@ -4,6 +4,7 @@ import random
 import math
 import os
 import util
+import string
 import numpy as np
 import distance
 import cPickle as pickle
@@ -277,8 +278,8 @@ class Seq2SeqBasic(Seq2SeqTemplate):
             symbols = self.generate(src)
             symbols = [symbol.s for symbol in symbols if symbol!=self.tgt_vocab.END_TOK]
             target = [t for t in target if t!=self.tgt_vocab.END_TOK.s]
-            # symbols = [symbol.strip(string.digits) for symbol in symbols]
-            # target = [t.strip(string.digits) for t in target]
+            #symbols = [symbol.strip(string.digits) for symbol in symbols]
+            #target = [t.strip(string.digits) for t in target]
             # print "Generated: ", symbols, "True: " , target
             dist = distance.levenshtein(symbols, target)
             # print "Levenshtein: ", dist
@@ -292,7 +293,7 @@ class Seq2SeqBasic(Seq2SeqTemplate):
         print "Average per-word error: ", perWordError/count   
 
 class Seq2SeqBiRNNAttn(Seq2SeqBasic):
-    name="attention"
+    name = "attention"
     def __init__(self, model, src_vocab, tgt_vocab, args):
         self.m = model
         self.src_vocab = src_vocab
@@ -567,7 +568,7 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
         print "Average per-word error: ", perWordError/count
         
 class Seq2SeqBiRNNJointAttn(Seq2SeqBiRNNAttn):
-    name="joint_attention"
+    name = "joint_attention"
     def __init__(self, model, src_vocab, tgt_vocab, args):
         self.m = model
         self.src_vocab = src_vocab

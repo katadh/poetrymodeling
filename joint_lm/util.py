@@ -5,6 +5,9 @@ import math, ast, os, codecs
 import cPickle as pickle
 import json, sys, io
 from pattern.en import tokenize
+import dynet
+
+import seq2seq
 
 flatten = lambda l:[item for sublist in l for item in sublist]
 
@@ -29,6 +32,7 @@ def weightedChoice(weights, objects, apply_softmax=False, alpha=None):
     idx = min(idx, len(objects)-1)
     return objects[idx]
 
+
 def itersubclasses(cls, _seen=None):
     if not isinstance(cls, type):
         raise TypeError('itersubclasses must be called with '
@@ -45,6 +49,22 @@ def itersubclasses(cls, _seen=None):
             for sub in itersubclasses(sub, _seen):
                 yield sub
 
+class PronDict(object):
+    def __init__(self, model, s2s):
+        self.pdict = {}
+        self.s2s = s2s
+
+    def add_prons(self, data):
+        for item in data:
+            for token in item:
+                if not (token in self.pdict):
+                    dynet.renew_cg()
+                    spelling = [self.s2s.src_vocab[letter] for letter in token.upper()]
+                    embedded_spelling = self.s2s.embed_seq(spelling)
+                    pron_vector = self.s2s.encode_seq(embedded_spelling)[-1]
+                    fpv = dynet.nobackprop(pron_vector)
+                    self.pdict[token] = fpv.vec_value()
+                
 class Token(object):
     def __init__(self, i, s, count=1):
         self.i = i

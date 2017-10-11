@@ -35,7 +35,7 @@ parser.add_argument("--attention_dim", default=50, type=int)
 ## experiment parameters
 parser.add_argument("--epochs", default=10, type=int)
 parser.add_argument("--learning_rate", default=1.0, type=float)
-parser.add_argument("--log_train_every_n", default=100, type=int)
+parser.add_argument("--log_train_every_n", default=500, type=int)
 parser.add_argument("--log_valid_every_n", default=5000, type=int)
 parser.add_argument("--output")
 
@@ -109,14 +109,14 @@ else:
     print "Train set of size", len(train_data), "/ Validation set of size", len(valid_data)
 print "done."
 
-if args.eval:
-    print "Evaluating model..."
-    train_data = list(util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
-    if args.test:
-        s2s.evaluate(train_data)
-        sys.exit("...done.")
-    else:
-        raise Exception("Test file path argument missing")
+#if args.eval:
+#    print "Evaluating model..."
+#    train_data = list(util.get_reader(args.reader_mode)(args.train, mode=args.reader_mode, begin=BEGIN_TOKEN, end=END_TOKEN))
+#    if args.test:
+#        s2s.evaluate(train_data)
+#        sys.exit("...done.")
+#    else:
+#        raise Exception("Test file path argument missing")
 
 
 if args.output:
