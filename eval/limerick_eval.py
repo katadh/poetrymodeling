@@ -197,14 +197,25 @@ def eval_limerick_files(dir_path, num_lim):
 
     return avg_line_struct_error, avg_total_struct_error, avg_rhyme_error
 
-def eval_file_limericks(path):
+def eval_file_limericks(path, num_lim=None):
+
+    all_limericks = []
+
+    with open(path, 'r') as lims_file:
+        all_limericks = lims_file.readlines()
+
+    all_limericks = [re.sub(' <br.> ', '\n', lim).encode('ascii', 'ignore').lower() for lim in all_limericks]
 
     limericks = []
 
-    with open(path, 'r') as lims_file:
-        limericks = lims_file.readlines()
-
-    limericks = [lim.replace(' <br> ', '\n').encode('ascii', 'ignore').lower() for lim in limericks]
+    if not num_lim:
+        limericks = all_limericks
+    else:
+        for i in range(num_lim):
+            lim = random.choice(all_limericks)
+            #print lim
+            limericks.append(lim)
+            all_limericks.remove(lim)
 
     avg_line_struct_error = average_line_syllable_error(limericks)
     avg_total_struct_error = average_total_syllable_error(limericks)
