@@ -1,9 +1,33 @@
+templates:
+
 python trains2s.py --train=../data/cmudict --reader_mode=cmudict --save=pronouncer.model --model=attention --output=attnpron_log.txt  --unk_thresh=0 --input_dim=64 --hidden_dim=128 --attention_dim=128
 
 python trains2s.py --dynet-mem 1600 --train=../data/ohhla --reader_mode=ohhla_line_pairs --save=ohhla.default.small.model --model=attention
 
 python trainlm.py --dynet-mem=10000 --dynet-gpu --train=../data/oedilf --reader_mode=oedilf --split_train --input_dim=64 --hidden_dim=256 --output=basic_model.log
 
-python trainlm.py --dynet-mem=10000 --dynet-gpu --train=../data/oedilf --reader_mode=oedilf --model=joint --s2s=basicpronouncer.model --s2s_type=basic --split_train --input_dim=64 --hidden_dim=256 --output=joint_basic_model.log
+python trainlm.py --dynet-mem=10000 --dynet-gpu --train=../data/oedilf/train --valid=../data/oedilf/valid --reader_mode=oedilf --model=joint --s2s=basicpronouncer.model --s2s_type=basic --input_dim=64 --hidden_dim=256 --output=joint_basic_model_170930.log --save=basic_joint_170930.model
 
 python trainlm.py --dynet-mem=10000 --dynet-gpu --train=../data/oedilf --reader_mode=oedilf --model=joint --s2s=attpronouncer.model --s2s_type=attention --split_train --input_dim=64 --hidden_dim=256 --output=joint_attn_model.log
+
+17/10/04:
+
+python trainlm.py --dynet-mem=10000 --dynet-gpu --train=../data/oedilf/train --valid=../data/oedilf/valid --reader_mode=oedilf --model=joint --s2s=basic_pron_512_2l.model --s2s_type=basic --input_dim=64 --hidden_dim=256 --output=joint_basic_model_171004.log --save=basic_joint_171004.model //TOO SLOW
+
+python trainlm.py --dynet-mem=10000 --dynet-gpu --train=../data/oedilf/train --valid=../data/oedilf/valid --reader_mode=oedilf --model=joint --s2s=basic_pron_128_2l.model --s2s_type=basic --input_dim=64 --hidden_dim=256 --output=joint_basic_model_171004.log --save=basic_joint_171004.model //TOO SLOW
+
+python trainlm.py --dynet-mem=10000 --dynet-gpu --train=../data/oedilf/train --valid=../data/oedilf/valid --minibatch_size=8 --reader_mode=oedilf --model=joint --s2s=basic_pron_128_2l.model --s2s_type=basic --input_dim=64 --hidden_dim=256 --output=joint_basic_model_171004.log --save=basic_joint_171004.model //TOO SLOW
+
+python trainlm.py --dynet-mem=10000 --dynet-gpu --train=../data/oedilf/train --valid=../data/oedilf/valid --reader_mode=oedilf --model=joint --s2s=new_basic_pron512.model --s2s_type=basic --input_dim=64 --hidden_dim=256 --output=joint_basic_model_171004.log --save=basic_joint_171004.model
+
+17/10/07:
+
+python trainlm.py --dynet-mem=10000 --dynet-gpu --train=../data/oedilf/train --valid=../data/oedilf/valid --reader_mode=oedilf --model=joint --s2s=new_basic_pron512.model --s2s_type=basic --input_dim=64 --hidden_dim=256 --output=joint_basic_model_171007.log --save=basic_joint_171007.model //TESTING SPEED
+
+17/10/08:
+
+python trainlm.py --dynet-mem=10000 --dynet-gpu --train=../data/oedilf/train --valid=../data/oedilf/valid --reader_mode=oedilf --model=joint --s2s=basic_pron_128_2l.model --s2s_type=basic --input_dim=64 --hidden_dim=256 --output=joint_basic_model_171008.log --save=basic_joint_171008.model
+
+17/10/09:
+
+python trainlm.py --dynet-mem=10000 --dynet-gpu --train=../data/oedilf/train --valid=../data/oedilf/valid --reader_mode=oedilf --input_dim=64 --hidden_dim=256 --output=basic_model_171009.log --save=basic_171009.model
