@@ -326,6 +326,22 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
         self.attention_w2 = model.add_parameters( (args.attention_dim, args.hidden_dim*args.layers*2))
         self.attention_v = model.add_parameters( (1, args.attention_dim))
 
+
+    def embed_seq(self, seq):
+        
+        word = [self.src_lookup[self.src_vocab[tok].i] for tok in seq] ##? self.src_vocab[tok].i ?
+        return word
+
+
+    def encode_seq(self, src_seq):
+        src_seq_rev = list(reversed(src_seq))
+        fwd_vectors = self.enc_fwd_lstm.initial_state().transduce(src_seq)
+        bwd_vectors = self.enc_bwd_lstm.initial_state().transduce(src_seq_rev)
+        bwd_vectors = list(reversed(bwd_vectors))
+        vectors = [dynet.concatenate(list(p)) for p in zip(fwd_vectors, bwd_vectors)]
+        return vectors
+
+
     def attend(self, input_vectors, state):
         w1 = dynet.parameter(self.attention_w1)
         w2 = dynet.parameter(self.attention_w2)
@@ -339,6 +355,7 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
         attention_weights = dynet.softmax(dynet.concatenate(attention_weights))
         output_vectors = dynet.esum([vector*attention_weight for vector, attention_weight in zip(input_vectors, attention_weights)])
         return output_vectors
+
 
     def decode(self, input_vectors, output):
         tgt_toks = [self.tgt_vocab[tok] for tok in output]
@@ -363,6 +380,14 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
 
         loss = dynet.esum(loss)
         return loss
+
+
+    def get_loss(self, input, output):
+        dynet.renew_cg()
+        embedded = self.embed_seq(input)
+        encoded = self.encode_seq(embedded)
+        return self.decode(encoded, output)
+
 
     def generate(self, src_seq, sampled=False):
         def sample(probs):
@@ -399,6 +424,7 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
             inp = dynet.concatenate([embed_vector, attn_vector])
             s = s.add_input(inp)
         return out
+
 
     def beam_search_generate(self, src_seq, beam_n=5):
         dynet.renew_cg()
@@ -522,11 +548,6 @@ class Seq2SeqBiRNNAttn(Seq2SeqBasic):
 
         return self.decode_batch(encoded_batch, output_batch)
 
-    def get_loss(self, input, output):
-        dynet.renew_cg()
-        embedded = self.embed_seq(input)
-        encoded = self.encode_seq(embedded)
-        return self.decode(encoded, output)
 
     def get_perplexity(self, input, output):
         dynet.renew_cg()
